@@ -471,6 +471,286 @@ Need custom ordering?
     └─► Use natural ordering (default)
 ```
 
+## Measuring Comparator Performance
+
+Before investing time in writing a custom C ABI comparator, users should measure whether comparison overhead is actually a bottleneck. This section provides tools and techniques for making data-driven optimization decisions.
+
+### When to Consider Optimization
+
+| Scenario | Comparisons/sec | Comparison % of Time | Recommendation |
+|----------|-----------------|----------------------|----------------|
+| Low-volume API | < 10K | < 1% | Keep Python callable |
+| Moderate throughput | 10K-100K | 1-10% | Consider key function |
+| High throughput | 100K-1M | 10-30% | Consider native comparator |
+| Ultra-high throughput | > 1M | > 30% | Definitely optimize |
+
+### Quick Benchmark: Is Comparison Your Bottleneck?
+
+```python
+import time
+from concurrent_collections import SkipListMap
+
+def benchmark_comparator(map_class, cmp, n_items=100_000, n_ops=100_000):
+    """Benchmark comparison overhead for a given comparator."""
+    import random
+
+    # Setup: populate map
+    m = map_class(cmp=cmp) if cmp else map_class()
+    keys = [random.randint(0, n_items * 10) for _ in range(n_items)]
+    for k in keys:
+        m[k] = k
+
+    # Benchmark: random lookups
+    lookup_keys = [random.randint(0, n_items * 10) for _ in range(n_ops)]
+
+    start = time.perf_counter()
+    for k in lookup_keys:
+        _ = m.get(k)
+    elapsed = time.perf_counter() - start
+
+    ops_per_sec = n_ops / elapsed
+    ns_per_op = (elapsed / n_ops) * 1e9
+
+    return {
+        'ops_per_sec': ops_per_sec,
+        'ns_per_op': ns_per_op,
+        'total_time': elapsed,
+    }
+
+# Compare different comparator types
+results = {}
+
+# Natural ordering (baseline)
+results['natural'] = benchmark_comparator(SkipListMap, None)
+
+# Python callable
+results['python'] = benchmark_comparator(
+    SkipListMap,
+    lambda a, b: (a > b) - (a < b)
+)
+
+# Key function
+results['key'] = benchmark_comparator(
+    SkipListMap,
+    None,  # Use key= parameter instead
+)
+
+# Print comparison
+print(f"{'Type':<15} {'ops/sec':>12} {'ns/op':>10} {'vs natural':>12}")
+print("-" * 52)
+baseline = results['natural']['ops_per_sec']
+for name, r in results.items():
+    ratio = r['ops_per_sec'] / baseline
+    print(f"{name:<15} {r['ops_per_sec']:>12,.0f} {r['ns_per_op']:>10.1f} {ratio:>11.1%}")
+```
+
+**Example output:**
+```
+Type              ops/sec      ns/op   vs natural
+----------------------------------------------------
+natural         1,250,000       800.0      100.0%
+python            125,000     8,000.0       10.0%
+key             1,100,000       909.0       88.0%
+```
+
+### Detailed Profiling with cProfile
+
+```python
+import cProfile
+import pstats
+from concurrent_collections import SkipListMap
+
+def profile_comparator_usage():
+    """Profile to see where time is spent."""
+    m = SkipListMap(cmp=lambda a, b: (a > b) - (a < b))
+
+    # Your workload
+    for i in range(100_000):
+        m[i] = i
+    for i in range(100_000):
+        _ = m.get(i)
+
+# Profile and analyze
+profiler = cProfile.Profile()
+profiler.enable()
+profile_comparator_usage()
+profiler.disable()
+
+# Show top time consumers
+stats = pstats.Stats(profiler)
+stats.sort_stats('cumulative')
+stats.print_stats(20)
+
+# Look for comparison-related entries:
+# - <lambda> calls indicate Python comparator overhead
+# - Large cumtime in comparison functions = optimization target
+```
+
+### Micro-benchmark: Comparator Function Alone
+
+```python
+import timeit
+
+# Isolate just the comparison function overhead
+def benchmark_cmp_function(cmp_func, a, b, iterations=1_000_000):
+    """Benchmark raw comparator function call overhead."""
+
+    def test():
+        cmp_func(a, b)
+
+    time_per_call = timeit.timeit(test, number=iterations) / iterations
+    return time_per_call * 1e9  # nanoseconds
+
+# Test different comparison approaches
+a, b = 42, 100
+
+# Natural Python comparison
+natural_ns = benchmark_cmp_function(lambda a, b: (a > b) - (a < b), a, b)
+
+# Your custom comparator
+def my_complex_cmp(a, b):
+    # Simulate complex comparison logic
+    return (a > b) - (a < b)
+
+custom_ns = benchmark_cmp_function(my_complex_cmp, a, b)
+
+print(f"Natural comparison: {natural_ns:.1f} ns/call")
+print(f"Custom comparison:  {custom_ns:.1f} ns/call")
+print(f"Overhead: {custom_ns - natural_ns:.1f} ns/call")
+
+# Rule of thumb: if overhead > 100ns and you do >100K comparisons/sec,
+# consider a native comparator
+```
+
+### Container-Level Statistics
+
+The library provides built-in statistics for measuring comparison overhead:
+
+```python
+from concurrent_collections import SkipListMap, config
+
+# Enable statistics collection
+config.enable_statistics = True
+
+m = SkipListMap(cmp=my_comparator)
+
+# Your workload...
+for i in range(10_000):
+    m[i] = i
+
+# Get statistics
+stats = m.statistics()
+print(f"Total comparisons: {stats['comparison_count']:,}")
+print(f"Avg comparisons per put: {stats['avg_comparisons_per_put']:.1f}")
+print(f"Total comparison time: {stats['comparison_time_ns'] / 1e6:.2f} ms")
+print(f"Comparison % of total: {stats['comparison_time_pct']:.1f}%")
+
+# Reset for next measurement
+m.reset_statistics()
+```
+
+### Real-World Decision Example
+
+```python
+from concurrent_collections import SkipListMap
+import time
+
+# Scenario: Case-insensitive string map with 1M entries
+N = 1_000_000
+
+# Option 1: Python callable
+def py_case_insensitive(a, b):
+    a_lower, b_lower = a.lower(), b.lower()
+    return (a_lower > b_lower) - (a_lower < b_lower)
+
+# Option 2: Key function (extract once)
+# m = SkipListMap(key=str.lower)
+
+# Measure Option 1
+start = time.perf_counter()
+m1 = SkipListMap(cmp=py_case_insensitive)
+for i in range(N):
+    m1[f"Key{i:07d}"] = i
+insert_time = time.perf_counter() - start
+
+print(f"Python callable: {N:,} inserts in {insert_time:.2f}s")
+print(f"  = {N/insert_time:,.0f} inserts/sec")
+
+# Calculate: is optimization worth it?
+# With ~20 comparisons per insert (log2(1M) ≈ 20):
+comparisons = N * 20
+comparison_overhead_estimate = comparisons * 500e-9  # ~500ns per Python call
+print(f"  Estimated comparison overhead: {comparison_overhead_estimate:.2f}s")
+print(f"  Comparison % of insert time: {comparison_overhead_estimate/insert_time*100:.0f}%")
+
+# If comparison % > 30%, optimization will help significantly
+if comparison_overhead_estimate / insert_time > 0.3:
+    print("  → RECOMMENDATION: Consider native comparator")
+else:
+    print("  → RECOMMENDATION: Python callable is fine")
+```
+
+### Profiling Native Comparators
+
+For users who implement C ABI comparators, validate the improvement:
+
+```python
+def compare_implementations(implementations: dict, n_items=100_000):
+    """Compare multiple comparator implementations."""
+    import random
+
+    results = {}
+    test_keys = [f"key{random.randint(0, n_items*10):08d}" for _ in range(n_items)]
+
+    for name, cmp in implementations.items():
+        m = SkipListMap(cmp=cmp) if cmp else SkipListMap()
+
+        # Measure insert
+        start = time.perf_counter()
+        for k in test_keys:
+            m[k] = 1
+        insert_time = time.perf_counter() - start
+
+        # Measure lookup
+        start = time.perf_counter()
+        for k in test_keys:
+            _ = m.get(k)
+        lookup_time = time.perf_counter() - start
+
+        results[name] = {
+            'insert_ops_sec': n_items / insert_time,
+            'lookup_ops_sec': n_items / lookup_time,
+        }
+
+    # Print comparison table
+    print(f"{'Implementation':<20} {'Insert ops/s':>15} {'Lookup ops/s':>15} {'Speedup':>10}")
+    print("-" * 65)
+
+    baseline = results.get('python', list(results.values())[0])
+    for name, r in results.items():
+        speedup = r['lookup_ops_sec'] / baseline['lookup_ops_sec']
+        print(f"{name:<20} {r['insert_ops_sec']:>15,.0f} {r['lookup_ops_sec']:>15,.0f} {speedup:>9.1f}x")
+
+# Usage
+from my_rust_comparators import case_insensitive_native
+
+compare_implementations({
+    'python': lambda a, b: (a.lower() > b.lower()) - (a.lower() < b.lower()),
+    'key_func': None,  # Would use key=str.lower
+    'native': case_insensitive_native(),
+})
+```
+
+### Decision Checklist
+
+Before writing a native comparator, verify:
+
+- [ ] **Measured baseline**: Know your current ops/sec
+- [ ] **Identified bottleneck**: Comparison is >20% of operation time
+- [ ] **Estimated improvement**: Native comparator would provide >2x speedup
+- [ ] **Justified complexity**: Maintenance cost is worth the performance gain
+- [ ] **Tested correctness**: Native comparator produces identical ordering
+
 ### C API
 
 ```c
