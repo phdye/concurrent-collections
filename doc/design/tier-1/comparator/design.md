@@ -192,6 +192,285 @@ class Comparator:
         """Return comparator type: 'natural', 'c_func', 'key_func', or 'python'."""
 ```
 
+## User Options for Custom Comparators
+
+Users have multiple options for creating custom comparators, each with different trade-offs:
+
+### Option Comparison
+
+| Option | Performance | Ease of Use | Build Requirements | Best For |
+|--------|-------------|-------------|-------------------|----------|
+| Python callable | ~10% | Easiest | None | Prototyping, non-critical |
+| Key function | ~100% | Easy | None | Transform-based ordering |
+| Cython function | ~80-95% | Moderate | Cython build | Performance-critical Python projects |
+| Rust comparator | ~80-95% | Moderate | Rust build | Rust extension developers |
+| C ABI function | ~80-95% | Advanced | C/Rust/other compiler | Maximum interop, any language |
+
+### Option 1: Python Callable (Easiest)
+
+```python
+# No build step required
+m = SkipListMap(cmp=lambda a, b: len(a) - len(b))
+
+# Or a function
+def by_priority(a, b):
+    return a.priority - b.priority
+
+m = SkipListMap(cmp=by_priority)
+```
+
+**Pros:** No compilation, works immediately
+**Cons:** ~10x slower per comparison
+
+### Option 2: Key Function (Familiar)
+
+```python
+# Like sorted(key=...)
+m = SkipListMap(key=str.lower)           # Case-insensitive
+m = SkipListMap(key=lambda x: -x)        # Reverse numeric
+m = SkipListMap(key=lambda x: x.name)    # By attribute
+```
+
+**Pros:** No compilation, keys extracted once (amortized cost)
+**Cons:** Key stored per entry (memory overhead)
+
+### Option 3: Cython Function (High Performance)
+
+```cython
+# my_comparators.pyx
+cdef int reverse_cmp(PyObject* a, PyObject* b, void* ctx) noexcept nogil:
+    cdef long va = (<object>a)
+    cdef long vb = (<object>b)
+    return (vb > va) - (vb < va)
+
+def get_reverse():
+    from concurrent_collections import Comparator
+    return Comparator.from_cfunc(<Py_uintptr_t>reverse_cmp)
+```
+
+```python
+# Usage
+from my_comparators import get_reverse
+m = SkipListMap(cmp=get_reverse())
+```
+
+**Pros:** Near-native performance, Python ecosystem
+**Cons:** Requires Cython build step
+
+### Option 4: Rust Comparator (Type-Safe)
+
+```rust
+// For Rust extension developers
+impl PyComparator for MyComparator {
+    fn compare(&self, py: Python, a: &PyAny, b: &PyAny) -> PyResult<Ordering> {
+        // Custom logic with Rust type safety
+    }
+}
+```
+
+**Pros:** Memory safety, Rust tooling
+**Cons:** Requires Rust build, PyO3 knowledge
+
+### Option 5: C ABI Function (Maximum Interop)
+
+Any language that can produce C ABI functions works. The C ABI is the universal interface that all options ultimately use.
+
+**Required C ABI Signature:**
+```c
+int cmp_func(PyObject *a, PyObject *b, void *context);
+// Returns: negative if a < b, zero if a == b, positive if a > b
+```
+
+#### Rust with C ABI (Recommended for Rust Users)
+
+```rust
+// my_comparators/src/lib.rs
+use std::os::raw::{c_int, c_void};
+use pyo3::ffi::PyObject;
+use pyo3::Python;
+
+/// Reverse numeric comparator with C ABI
+///
+/// # Safety
+/// Caller must ensure a and b are valid PyObject pointers
+#[no_mangle]
+pub extern "C" fn reverse_numeric_cmp(
+    a: *mut PyObject,
+    b: *mut PyObject,
+    _ctx: *mut c_void,
+) -> c_int {
+    if a.is_null() || b.is_null() {
+        return 0;
+    }
+
+    Python::with_gil(|py| {
+        unsafe {
+            let a_any = pyo3::PyAny::from_borrowed_ptr(py, a);
+            let b_any = pyo3::PyAny::from_borrowed_ptr(py, b);
+
+            // Try fast path for integers
+            if let (Ok(va), Ok(vb)) = (a_any.extract::<i64>(), b_any.extract::<i64>()) {
+                return match vb.cmp(&va) {
+                    std::cmp::Ordering::Less => -1,
+                    std::cmp::Ordering::Equal => 0,
+                    std::cmp::Ordering::Greater => 1,
+                };
+            }
+
+            // Fallback to Python comparison (reversed)
+            if b_any.lt(a_any).unwrap_or(false) { -1 }
+            else if b_any.gt(a_any).unwrap_or(false) { 1 }
+            else { 0 }
+        }
+    })
+}
+
+/// Case-insensitive string comparator
+#[no_mangle]
+pub extern "C" fn case_insensitive_cmp(
+    a: *mut PyObject,
+    b: *mut PyObject,
+    _ctx: *mut c_void,
+) -> c_int {
+    Python::with_gil(|py| {
+        unsafe {
+            let a_any = pyo3::PyAny::from_borrowed_ptr(py, a);
+            let b_any = pyo3::PyAny::from_borrowed_ptr(py, b);
+
+            match (a_any.extract::<String>(), b_any.extract::<String>()) {
+                (Ok(sa), Ok(sb)) => {
+                    match sa.to_lowercase().cmp(&sb.to_lowercase()) {
+                        std::cmp::Ordering::Less => -1,
+                        std::cmp::Ordering::Equal => 0,
+                        std::cmp::Ordering::Greater => 1,
+                    }
+                }
+                _ => 0,
+            }
+        }
+    })
+}
+
+/// Get function pointer for Python registration
+#[no_mangle]
+pub extern "C" fn get_reverse_numeric_ptr() -> usize {
+    reverse_numeric_cmp as usize
+}
+
+#[no_mangle]
+pub extern "C" fn get_case_insensitive_ptr() -> usize {
+    case_insensitive_cmp as usize
+}
+```
+
+**Python wrapper module:**
+```python
+# my_comparators/__init__.py
+import ctypes
+from pathlib import Path
+from concurrent_collections import Comparator
+
+# Load the Rust shared library
+_lib_path = Path(__file__).parent / "libmy_comparators.so"
+_lib = ctypes.CDLL(str(_lib_path))
+
+# Get function pointers
+_lib.get_reverse_numeric_ptr.restype = ctypes.c_size_t
+_lib.get_case_insensitive_ptr.restype = ctypes.c_size_t
+
+def reverse_numeric() -> Comparator:
+    """Reverse numeric ordering comparator."""
+    return Comparator.from_cfunc(_lib.get_reverse_numeric_ptr())
+
+def case_insensitive() -> Comparator:
+    """Case-insensitive string comparator."""
+    return Comparator.from_cfunc(_lib.get_case_insensitive_ptr())
+```
+
+**Usage:**
+```python
+from concurrent_collections import SkipListMap
+from my_comparators import reverse_numeric, case_insensitive
+
+# Reverse numeric ordering
+m = SkipListMap(cmp=reverse_numeric())
+m[1], m[10], m[5] = "a", "b", "c"
+list(m.keys())  # [10, 5, 1]
+
+# Case-insensitive strings
+m2 = SkipListMap(cmp=case_insensitive())
+m2["Apple"] = 1
+m2["banana"] = 2
+list(m2.keys())  # ['Apple', 'banana'] - sorted case-insensitively
+```
+
+#### Pure C
+
+```c
+// my_comparators.c
+#include <Python.h>
+
+int reverse_numeric_cmp(PyObject *a, PyObject *b, void *ctx) {
+    if (PyLong_Check(a) && PyLong_Check(b)) {
+        long va = PyLong_AsLong(a);
+        long vb = PyLong_AsLong(b);
+        return (vb > va) - (vb < va);  // Reversed
+    }
+    // Fallback to Python comparison
+    int result = PyObject_RichCompareBool(b, a, Py_LT);
+    if (result > 0) return -1;
+    result = PyObject_RichCompareBool(b, a, Py_GT);
+    if (result > 0) return 1;
+    return 0;
+}
+```
+
+#### Zig
+
+```zig
+// my_comparators.zig
+const std = @import("std");
+const py = @cImport(@cInclude("Python.h"));
+
+export fn reverse_numeric_cmp(
+    a: *py.PyObject,
+    b: *py.PyObject,
+    ctx: ?*anyopaque,
+) callconv(.C) c_int {
+    _ = ctx;
+    // Implementation using Python C API
+    // ...
+}
+```
+
+**Pros:** Works from any language, maximum performance, universal compatibility
+**Cons:** Requires external build, manual memory management, ctypes loading
+
+### Recommendation Flow
+
+```
+Need custom ordering?
+    │
+    ├─► Prototyping/testing?
+    │       └─► Use Python callable
+    │
+    ├─► Just need to sort by a field/transform?
+    │       └─► Use key function
+    │
+    ├─► Performance critical?
+    │       │
+    │       ├─► Already using Cython?
+    │       │       └─► Use Cython function
+    │       │
+    │       ├─► Already using Rust?
+    │       │       └─► Use Rust comparator
+    │       │
+    │       └─► Other language / maximum control?
+    │               └─► Use C ABI function
+    │
+    └─► Use natural ordering (default)
+```
+
 ### C API
 
 ```c
