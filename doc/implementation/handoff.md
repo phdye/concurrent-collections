@@ -8,22 +8,27 @@
 
 ## Session Summary
 
-Completed documentation infrastructure and Tier 0-1 design:
-- Fixed `ref/design-handoff.md` (date, status, next steps)
-- Created `doc/implementation/` with progress.md and handoff.md
-- Created Tier 1-5 directory structure with README.md files
-- Completed Tier 0 documentation (all 4 modules)
-- Completed Tier 1 documentation:
-  - `comparator` module: design.md, spec.md, tests.md
+Completed Tier 2 (Memory Management) design documentation:
+- `mimalloc_glue` module: design.md, spec.md, tests.md
+- `smr_ibr` module: design.md, spec.md, tests.md, spec.tla
+- `smr_debra` module: design.md, spec.md, tests.md, spec.tla
+
+All three Tier 2 modules now have complete design documentation including:
+- Architecture and algorithm documentation
+- Formal contracts and invariants
+- Test coverage plans
+- TLA+ formal specifications (for SMR modules)
 
 ---
 
 ## Next Priorities
 
-1. **Begin Tier 2 design documentation**
-   - `mimalloc_glue` module docs
-   - `smr_ibr` module docs (with TLA+ spec)
-   - `smr_debra` module docs (with TLA+ spec)
+1. **Begin Tier 3 design documentation**
+   - `skiplist_lockfree` module docs (with TLA+ spec)
+   - `skiplist_locked` module docs
+   - `treiber` stack docs (with TLA+ spec)
+   - Queue algorithms (scq, lcrq, wcq)
+   - BST algorithms
 
 2. **Set up build infrastructure**
    - Create pyproject.toml
@@ -45,6 +50,7 @@ Completed documentation infrastructure and Tier 0-1 design:
 | C extension approach | Pure C vs Cython vs pybind11 vs PyO3 | Affects code structure, build complexity |
 | Test framework | pytest vs unittest vs both | Affects test organization |
 | CI platform | GitHub Actions vs other | Affects workflow files |
+| SMR default | IBR vs DEBRA+ | Affects default behavior |
 
 ---
 
@@ -66,14 +72,37 @@ None currently.
 | `ref/complete-design.md` | Documentation methodology |
 | `ref/design-handoff.md` | Historical handoff (updated) |
 
-### Tier 0 Module Status
+### Tier 0-2 Module Status
 
-| Module | Design | Spec | Tests | Platform |
-|--------|--------|------|-------|----------|
-| arch_detect | ✅ | ✅ | ✅ | ✅ |
-| atomics | ✅ | ✅ | ✅ | ✅ |
-| backoff | ✅ | ✅ | ✅ | N/A |
-| config | ✅ | ✅ | ✅ | N/A |
+| Module | Design | Spec | Tests | TLA+ | Platform |
+|--------|--------|------|-------|------|----------|
+| arch_detect | ✅ | ✅ | ✅ | N/A | ✅ |
+| atomics | ✅ | ✅ | ✅ | N/A | ✅ |
+| backoff | ✅ | ✅ | ✅ | N/A | N/A |
+| config | ✅ | ✅ | ✅ | N/A | N/A |
+| comparator | ✅ | ✅ | ✅ | N/A | N/A |
+| mimalloc_glue | ✅ | ✅ | ✅ | N/A | N/A |
+| smr_ibr | ✅ | ✅ | ✅ | ✅ | N/A |
+| smr_debra | ✅ | ✅ | ✅ | ✅ | N/A |
+
+### Tier 2 Key Design Decisions
+
+| Module | Decision | Choice |
+|--------|----------|--------|
+| mimalloc_glue | Allocator | mimalloc (CPython 3.13t default) |
+| mimalloc_glue | Stats | Optional, disabled by default |
+| smr_ibr | Limbo lists | 3 (ring buffer by epoch % 3) |
+| smr_ibr | Retire threshold | 64 nodes |
+| smr_debra | Neutralization signal | SIGURG |
+| smr_debra | Windows fallback | IBR (no signals) |
+| smr_debra | Stall threshold | 100 epochs |
+
+### TLA+ Specifications Created
+
+| Module | File | Key Properties Verified |
+|--------|------|------------------------|
+| smr_ibr | spec.tla | NoUseAfterFree, NoDoubleFree, EpochMonotonic |
+| smr_debra | spec.tla | NoUseAfterFree, NeutralizationSafety, BoundedPending |
 
 ### Design Decisions Pending
 

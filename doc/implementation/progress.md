@@ -9,8 +9,8 @@
 | Tier | Status | Notes |
 |------|--------|-------|
 | 0 | ✅ | All 4 modules designed; implementation not started |
-| 1 | ✅ | comparator module designed |
-| 2 | ⬜ | Directory structure created |
+| 1 | ✅ | comparator module designed with instrumentation API |
+| 2 | ✅ | All 3 modules designed with TLA+ specs |
 | 3 | ⬜ | Directory structure created |
 | 4 | ⬜ | Directory structure created |
 | 5 | ⬜ | Directory structure created |
@@ -34,15 +34,15 @@ Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 
 | Module | Design | Spec | Tests | Implementation | Notes |
 |--------|--------|------|-------|----------------|-------|
-| `comparator` | ✅ | ✅ | ✅ | ⬜ | Complete |
+| `comparator` | ✅ | ✅ | ✅ | ⬜ | Complete with instrumentation API |
 
 ### Tier 2: Memory Management
 
-| Module | Design | Spec | Tests | Implementation | Notes |
-|--------|--------|------|-------|----------------|-------|
-| `mimalloc_glue` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `smr_ibr` | ⬜ | ⬜ | ⬜ | ⬜ | Needs TLA+ spec |
-| `smr_debra` | ⬜ | ⬜ | ⬜ | ⬜ | Needs TLA+ spec |
+| Module | Design | Spec | Tests | TLA+ | Implementation | Notes |
+|--------|--------|------|-------|------|----------------|-------|
+| `mimalloc_glue` | ✅ | ✅ | ✅ | N/A | ⬜ | Thin wrapper, no TLA+ needed |
+| `smr_ibr` | ✅ | ✅ | ✅ | ✅ | ⬜ | IBR algorithm fully specified |
+| `smr_debra` | ✅ | ✅ | ✅ | ✅ | ⬜ | DEBRA+ with neutralization |
 
 ### Tier 3: Core Algorithms
 
@@ -94,12 +94,24 @@ Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 - [ ] All modules have design.md, spec.md, tests.md
 - [ ] Unit tests pass on all platforms
 
+### Tier 2
+
+- [ ] `mimalloc_glue` wraps mimalloc with cc_alloc/cc_free API
+- [ ] `mimalloc_glue` supports cross-thread free pattern
+- [ ] `mimalloc_glue` provides cache-line aligned allocation
+- [ ] `smr_ibr` implements epoch-based reclamation
+- [ ] `smr_ibr` handles thread registration/unregistration
+- [ ] `smr_ibr` TLA+ spec verifies no use-after-free
+- [ ] `smr_debra` extends IBR with signal-based neutralization
+- [ ] `smr_debra` provides O(TR) memory bound
+- [ ] `smr_debra` falls back to IBR on Windows
+
 ---
 
 ## Current Focus
 
-Tier 0 and Tier 1 design documentation complete. Next steps:
-1. Begin Tier 2 design (memory management modules)
+Tier 0, 1, and 2 design documentation complete. Next steps:
+1. Begin Tier 3 design (core algorithms)
 2. Set up build infrastructure
 3. Start implementation of Tier 0 modules
 
@@ -116,7 +128,7 @@ None currently.
 | Milestone | Status | Notes |
 |-----------|--------|-------|
 | M1: Foundation (Tier 0) | 🔶 | Design complete; implementation not started |
-| M2: Memory Safe (Tier 0-2) | ⬜ | |
+| M2: Memory Safe (Tier 0-2) | 🔶 | Design complete; implementation not started |
 | M3: Skip List (Tier 0-3 partial) | ⬜ | |
 | M4: Full Containers (Tier 0-4) | ⬜ | |
 | M5: Production (Tier 0-5) | ⬜ | |
