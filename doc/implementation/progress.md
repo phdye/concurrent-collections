@@ -9,7 +9,7 @@
 | Tier | Status | Notes |
 |------|--------|-------|
 | 0 | ✅ | All 4 modules designed; implementation not started |
-| 1 | ⬜ | Directory structure created |
+| 1 | ✅ | comparator module designed |
 | 2 | ⬜ | Directory structure created |
 | 3 | ⬜ | Directory structure created |
 | 4 | ⬜ | Directory structure created |
@@ -34,7 +34,7 @@ Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 
 | Module | Design | Spec | Tests | Implementation | Notes |
 |--------|--------|------|-------|----------------|-------|
-| `comparator` | ⬜ | ⬜ | ⬜ | ⬜ | |
+| `comparator` | ✅ | ✅ | ✅ | ⬜ | Complete |
 
 ### Tier 2: Memory Management
 
@@ -98,8 +98,8 @@ Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 
 ## Current Focus
 
-Tier 0 design documentation is complete. Next steps:
-1. Begin Tier 1 design (comparator module)
+Tier 0 and Tier 1 design documentation complete. Next steps:
+1. Begin Tier 2 design (memory management modules)
 2. Set up build infrastructure
 3. Start implementation of Tier 0 modules
 

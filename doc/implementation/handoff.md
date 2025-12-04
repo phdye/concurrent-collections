@@ -8,21 +8,22 @@
 
 ## Session Summary
 
-Completed comprehensive documentation infrastructure:
+Completed documentation infrastructure and Tier 0-1 design:
 - Fixed `ref/design-handoff.md` (date, status, next steps)
 - Created `doc/implementation/` with progress.md and handoff.md
 - Created Tier 1-5 directory structure with README.md files
-- Created all module directories for Tiers 1-5
-- Completed Tier 0 documentation:
-  - `backoff` module: added spec.md, tests.md
-  - `config` module: created design.md, spec.md, tests.md
+- Completed Tier 0 documentation (all 4 modules)
+- Completed Tier 1 documentation:
+  - `comparator` module: design.md, spec.md, tests.md
 
 ---
 
 ## Next Priorities
 
-1. **Begin Tier 1 design documentation**
-   - Create `comparator` module docs (design.md, spec.md, tests.md)
+1. **Begin Tier 2 design documentation**
+   - `mimalloc_glue` module docs
+   - `smr_ibr` module docs (with TLA+ spec)
+   - `smr_debra` module docs (with TLA+ spec)
 
 2. **Set up build infrastructure**
    - Create pyproject.toml
