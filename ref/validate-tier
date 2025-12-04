@@ -1,0 +1,122 @@
+N = <tier-number>
+
+## Validation Scope
+
+Validate that ck-zig **fully and faithfully** implements Tier <N> functionality as specified in the authoritative design capture documents.
+
+### Reference Documents (Read First)
+1. **Tier Definition**: `phdye/doc/ck-porting-order.md` → Tier <N> module list
+2. **Completion Requirements**: `phdye/design/README.md` → Four-document mandate
+3. **Design Specifications**: `phdye/design/tier-<N>/` → Per-module specifications
+
+---
+
+## COMPLETENESS MANDATE (NON-NEGOTIABLE)
+
+**A faithful implementation means 100% coverage. There are no exceptions.**
+
+### What "Full and Faithful" Means:
+- **EVERY** module listed for Tier <N> must be implemented
+- **EVERY** sub-module/variant documented in design.md must be implemented
+- **EVERY** public API function specified in spec.md must exist with correct signature
+- **EVERY** operation defined in spec.tla+ must have a corresponding implementation
+- **EVERY** behavioral property must be preserved
+
+### Explicit Prohibitions:
+- Do NOT accept "common use case" justifications for missing variants
+- Do NOT accept "simpler alternative" substitutions
+- Do NOT accept "can be added later" deferrals
+- Do NOT ask "is this sufficient?" — the specification defines sufficiency
+- Do NOT treat optimization variants as optional (MPNC, SPNC, NPSC, etc. are REQUIRED if specified)
+
+### Missing Implementation = FAIL
+If ANY of the following are missing, the module validation verdict is **FAIL**:
+- Any variant listed in design.md (e.g., all 5 stack variants, all 8 spinlock variants)
+- Any public function in spec.md
+- Any operation in spec.tla+
+- Any regression test mapping in tests.md
+
+---
+
+## Mandatory Validation (Per Module/Sub-Module)
+
+For **EACH** module and sub-module listed in Tier <N>, validate ck-zig against ALL FOUR required documents:
+
+| Document | Validation Criteria |
+|----------|---------------------|
+| `design.md` | Architecture matches, algorithms implemented correctly, data structures faithfully ported, **ALL variants/sub-types implemented**, all dependencies satisfied, platform considerations addressed |
+| `spec.md` | **ALL** pre/postconditions enforced, **ALL** invariants maintained, **ALL** safety properties guaranteed, **ALL** error conditions handled as specified |
+| `spec.tla+` | Implementation semantics match formal TLA+ specification, **ALL** state transitions correct, **ALL** safety/liveness properties preserved |
+| `tests.md` | **ALL** mapped regression tests have corresponding Zig tests, **COMPLETE** test matrix coverage achieved, identified gaps addressed or documented as FAIL |
+
+---
+
+## Validation Process
+
+For each module in Tier <N>:
+1. **Enumerate Expected**: List ALL variants/sub-modules/APIs from design.md and spec.md
+2. **Enumerate Implemented**: List what actually exists in ck-zig
+3. **Compute Delta**: Identify EVERY missing item (not just "key" items)
+4. **Validate Present**: For items that exist, verify correctness against all four documents
+5. **Verdict**: PASS only if delta is empty AND all present items are correct
+
+---
+
+## Output
+
+Write comprehensive validation results to `phdye/report/tier-<N>.md` including:
+
+### Required Sections:
+1. **Module Inventory**
+   - Expected (from design docs): [complete list]
+   - Implemented (in ck-zig): [complete list]
+   - **Missing**: [explicit list — empty if complete]
+
+2. **Per-Module Compliance** (all four document types)
+   - design.md compliance: PASS/FAIL + details
+   - spec.md compliance: PASS/FAIL + details
+   - spec.tla+ compliance: PASS/FAIL + details
+   - tests.md compliance: PASS/FAIL + details
+
+3. **Deviations & Gaps**
+   - Specific deviations from specification (with file:line references)
+   - Missing implementations (with design doc reference)
+   - Incorrect implementations (with expected vs actual)
+
+4. **Remediation Requirements**
+   - Exactly what must be implemented to achieve PASS
+   - Priority order if multiple gaps exist
+
+5. **Tier <N> Validation Verdict**
+   - **PASS**: ALL modules complete, ALL variants implemented, ALL tests pass
+   - **FAIL**: ANY missing module, variant, API, or test coverage gap
+   - **PARTIAL** is not a valid verdict — incomplete = FAIL
+
+---
+
+## Example: How to Handle Variants
+
+If `design.md` specifies these stack variants:
+- UPMC (Unbounded Producers, Multiple Consumers)
+- MPMC (Multiple Producers, Multiple Consumers)  
+- MPNC (Multiple Producers, No Concurrent consumers)
+- SPNC (Single Producer, No Concurrent consumers)
+- NPSC (No concurrent Producers, Single Consumer)
+
+And ck-zig only implements UPMC and MPMC:
+
+**Verdict: FAIL**
+
+```
+Missing implementations:
+- MPNC: Not implemented (design.md section 3.2)
+- SPNC: Not implemented (design.md section 3.3)
+- NPSC: Not implemented (design.md section 3.4)
+
+Remediation required:
+1. Implement MPNC per design.md section 3.2
+2. Implement SPNC per design.md section 3.3
+3. Implement NPSC per design.md section 3.4
+```
+
+Do NOT output: "UPMC + MPMC coverage may be sufficient for common use cases."

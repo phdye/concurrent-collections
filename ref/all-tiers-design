@@ -1,0 +1,6 @@
+For N in (0, 1, 2, 3, 4, 5) : {
+    - complete Tier N design
+    - Add several bells and whistle performance tools
+    - Add Jupyter notebook(s) to tie it all together
+    - And notebook(s) to compare between the modules
+}

@@ -1,0 +1,9 @@
+1. N=0, execute instructions in `ref/validate-tier`
+
+2. Implement all missing/incomplete/inaccurate functionality -- including, but not limited to :
+   - primary functionality
+   - tests per the phdye/comprehensive-testing.md   
+   - benchmarks
+   - regressions
+
+3. Resolve all discrepancies -- retain reasonable additional functionality
