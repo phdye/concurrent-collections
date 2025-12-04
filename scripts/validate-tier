@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""
+validate-tier — Validate tier documentation completeness for concurrent_collections
+
+Usage:
+    validate-tier [TIER]     Validate specific tier (0-5) or all tiers if omitted
+    validate-tier --summary  Show summary status for all tiers
+
+Exit codes:
+    0  All checked tiers are complete
+    1  One or more tiers have missing documents
+    2  Error (invalid tier, missing config, etc.)
+"""
+
+import sys
+import os
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Optional
+
+# Project structure
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DESIGN_ROOT = PROJECT_ROOT / "doc" / "design"
+
+# Module requirements from design-capture.md
+MANDATORY_DOCS = ["design.md", "spec.md", "tests.md"]
+
+# Conditional documents by tier (from design-capture.md)
+# spec.tla: All Tier 2-3 modules
+# perf.md: All Tier 2-4 modules
+# platform.md: Modules with platform-specific code
+
+CONDITIONAL_TLA_TIERS = {2, 3}
+CONDITIONAL_PERF_TIERS = {2, 3, 4}
+
+# Modules requiring platform.md (from design-capture.md)
+PLATFORM_MODULES = {"arch_detect", "atomics", "lcrq"}
+
+# Tier definitions (from design-capture.md)
+TIER_MODULES = {
+    0: ["arch_detect", "atomics", "backoff", "config"],
+    1: ["comparator"],
+    2: ["mimalloc_glue", "smr_ibr", "smr_debra"],
+    3: ["skiplist_lockfree", "skiplist_locked", "bst_lockfree", "bst_locked",
+        "scq", "lcrq", "wcq", "treiber"],
+    4: ["SkipListMap", "SkipListSet", "FrozenSkipListMap", "FrozenSkipListSet",
+        "TreeMap", "TreeSet", "LockFreeQueue", "FastQueue", "WaitFreeQueue",
+        "LockFreeStack"],
+    5: ["BoundedSkipListMap"],
+}
+
+
+@dataclass
+class ModuleStatus:
+    """Status of a single module's documentation."""
+    name: str
+    tier: int
+    present: list[str] = field(default_factory=list)
+    missing_mandatory: list[str] = field(default_factory=list)
+    missing_conditional: list[str] = field(default_factory=list)
+
+    @property
+    def is_complete(self) -> bool:
+        """True if all mandatory docs are present."""
+        return len(self.missing_mandatory) == 0
+
+    @property
+    def is_fully_complete(self) -> bool:
+        """True if all mandatory and conditional docs are present."""
+        return self.is_complete and len(self.missing_conditional) == 0
+
+
+@dataclass
+class TierStatus:
+    """Status of an entire tier's documentation."""
+    tier: int
+    modules: list[ModuleStatus] = field(default_factory=list)
+
+    @property
+    def is_complete(self) -> bool:
+        """True if all modules have mandatory docs."""
+        return all(m.is_complete for m in self.modules)
+
+    @property
+    def is_fully_complete(self) -> bool:
+        """True if all modules have all docs."""
+        return all(m.is_fully_complete for m in self.modules)
+
+    @property
+    def complete_count(self) -> int:
+        return sum(1 for m in self.modules if m.is_complete)
+
+    @property
+    def total_count(self) -> int:
+        return len(self.modules)
+
+
+def get_required_docs(tier: int, module: str) -> tuple[list[str], list[str]]:
+    """Get required documents for a module.
+
+    Returns:
+        (mandatory, conditional) document lists
+    """
+    mandatory = MANDATORY_DOCS.copy()
+    conditional = []
+
+    if tier in CONDITIONAL_TLA_TIERS:
+        conditional.append("spec.tla")
+
+    if tier in CONDITIONAL_PERF_TIERS:
+        conditional.append("perf.md")
+
+    if module in PLATFORM_MODULES:
+        conditional.append("platform.md")
+
+    return mandatory, conditional
+
+
+def check_module(tier: int, module: str) -> ModuleStatus:
+    """Check documentation completeness for a single module."""
+    status = ModuleStatus(name=module, tier=tier)
+
+    module_dir = DESIGN_ROOT / f"tier-{tier}" / module
+    mandatory, conditional = get_required_docs(tier, module)
+
+    # Check mandatory docs
+    for doc in mandatory:
+        doc_path = module_dir / doc
+        if doc_path.exists():
+            status.present.append(doc)
+        else:
+            status.missing_mandatory.append(doc)
+
+    # Check conditional docs
+    for doc in conditional:
+        doc_path = module_dir / doc
+        if doc_path.exists():
+            status.present.append(doc)
+        else:
+            status.missing_conditional.append(doc)
+
+    return status
+
+
+def check_tier(tier: int) -> TierStatus:
+    """Check documentation completeness for an entire tier."""
+    if tier not in TIER_MODULES:
+        raise ValueError(f"Invalid tier: {tier}")
+
+    status = TierStatus(tier=tier)
+    for module in TIER_MODULES[tier]:
+        status.modules.append(check_module(tier, module))
+
+    return status
+
+
+def format_module_status(status: ModuleStatus, verbose: bool = True) -> str:
+    """Format module status for display."""
+    if status.is_fully_complete:
+        mark = "\033[32m[OK]\033[0m"  # Green
+    elif status.is_complete:
+        mark = "\033[33m[ok]\033[0m"  # Yellow (mandatory complete, missing conditional)
+    else:
+        mark = "\033[31m[!!]\033[0m"  # Red
+
+    lines = [f"  {mark} {status.name}"]
+
+    if verbose and not status.is_complete:
+        if status.missing_mandatory:
+            lines.append(f"      missing: {', '.join(status.missing_mandatory)}")
+        if status.missing_conditional:
+            lines.append(f"      optional: {', '.join(status.missing_conditional)}")
+    elif verbose and status.missing_conditional and status.is_complete:
+        lines.append(f"      optional: {', '.join(status.missing_conditional)}")
+
+    return "\n".join(lines)
+
+
+def format_tier_status(status: TierStatus, verbose: bool = True) -> str:
+    """Format tier status for display."""
+    if status.is_fully_complete:
+        tier_mark = "\033[32m[COMPLETE]\033[0m"
+    elif status.is_complete:
+        tier_mark = "\033[33m[complete]\033[0m"
+    else:
+        tier_mark = "\033[31m[INCOMPLETE]\033[0m"
+
+    lines = [f"Tier {status.tier}: {tier_mark} ({status.complete_count}/{status.total_count} modules)"]
+
+    if verbose:
+        for module in status.modules:
+            lines.append(format_module_status(module, verbose=True))
+
+    return "\n".join(lines)
+
+
+def format_summary(all_status: list[TierStatus]) -> str:
+    """Format summary of all tiers."""
+    lines = ["Tier Status Summary", "=" * 40]
+
+    for status in all_status:
+        if status.is_fully_complete:
+            mark = "\033[32m[OK]\033[0m"
+        elif status.is_complete:
+            mark = "\033[33m[ok]\033[0m"
+        else:
+            mark = "\033[31m[!!]\033[0m"
+
+        lines.append(f"  Tier {status.tier}: {mark} {status.complete_count}/{status.total_count} modules")
+
+    lines.append("=" * 40)
+
+    total_complete = sum(s.complete_count for s in all_status)
+    total_modules = sum(s.total_count for s in all_status)
+    lines.append(f"Total: {total_complete}/{total_modules} modules with mandatory docs")
+
+    return "\n".join(lines)
+
+
+def main():
+    args = sys.argv[1:]
+
+    # Parse arguments
+    if "--help" in args or "-h" in args:
+        print(__doc__)
+        return 0
+
+    summary_mode = "--summary" in args
+    if summary_mode:
+        args.remove("--summary")
+
+    # Determine which tiers to check
+    if args:
+        try:
+            tier = int(args[0])
+            if tier not in TIER_MODULES:
+                print(f"Error: Invalid tier {tier}. Valid tiers: 0-5", file=sys.stderr)
+                return 2
+            tiers_to_check = [tier]
+        except ValueError:
+            print(f"Error: Invalid argument '{args[0]}'", file=sys.stderr)
+            return 2
+    else:
+        tiers_to_check = list(TIER_MODULES.keys())
+
+    # Check tiers
+    all_status = [check_tier(t) for t in tiers_to_check]
+
+    # Display results
+    if summary_mode:
+        print(format_summary(all_status))
+    else:
+        for status in all_status:
+            print(format_tier_status(status))
+            print()
+
+    # Return exit code
+    if all(s.is_complete for s in all_status):
+        return 0
+    else:
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
