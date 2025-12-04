@@ -320,6 +320,270 @@ All functions are thread-safe:
 
 See `tests.md` for detailed test coverage.
 
+## Instrumentation & Profiling
+
+### MemoryProfiler
+
+The `MemoryProfiler` provides comprehensive memory allocation analysis for performance tuning and debugging.
+
+#### Features Overview
+
+| Feature | Purpose | Overhead |
+|---------|---------|----------|
+| **Allocation Histogram** | Distribution of allocation sizes | Low |
+| **Cross-Thread Tracking** | Frees on different thread than alloc | Medium |
+| **Fragmentation Metrics** | Internal/external fragmentation | Low |
+| **Peak Memory Watermark** | Maximum memory usage over time | Low |
+| **Allocation Rate** | Allocs/sec with moving average | Low |
+| **Latency Percentiles** | P50/P95/P99/P99.9 for alloc/free | Medium |
+| **Per-Thread Breakdown** | Stats per thread (free-threaded) | Medium |
+| **Leak Detection** | Track allocations never freed | High |
+
+#### Data Structures
+
+```python
+@dataclass
+class AllocationRecord:
+    """Individual allocation tracking (when leak detection enabled)."""
+    ptr: int                    # Memory address
+    size: int                   # Allocation size
+    timestamp: float            # When allocated
+    thread_id: int              # Allocating thread
+    stack_trace: list[str] | None  # Optional call stack
+
+@dataclass
+class SizeHistogram:
+    """Distribution of allocation sizes."""
+    buckets: dict[str, int]     # "1-8": count, "9-16": count, etc.
+    total_count: int
+    total_bytes: int
+
+    def hot_sizes(self, top_n: int = 5) -> list[tuple[str, int]]:
+        """Return most frequent allocation size ranges."""
+        ...
+
+@dataclass
+class ThreadMemoryStats:
+    """Per-thread memory statistics."""
+    thread_id: int
+    thread_name: str | None
+    alloc_count: int
+    free_count: int
+    alloc_bytes: int
+    free_bytes: int
+    cross_thread_frees_sent: int      # Frees of ptrs allocated by this thread
+    cross_thread_frees_received: int  # Frees this thread did for other threads
+
+@dataclass
+class FragmentationMetrics:
+    """Memory fragmentation analysis."""
+    internal_fragmentation: float     # Wasted space within allocations (padding)
+    external_fragmentation: float     # Wasted space between allocations
+    largest_free_block: int           # Bytes
+    free_block_count: int
+    utilization: float                # allocated / (allocated + free)
+
+@dataclass
+class MemoryProfilerReport:
+    """Complete memory profiler report."""
+    # Basic statistics
+    alloc_count: int
+    free_count: int
+    alloc_bytes: int
+    free_bytes: int
+    current_allocated: int
+    peak_allocated: int
+
+    # Rate metrics
+    alloc_rate: float                 # Allocations per second
+    free_rate: float                  # Frees per second
+    bytes_rate: float                 # Bytes allocated per second
+
+    # Latency percentiles (nanoseconds)
+    alloc_latency_p50: float
+    alloc_latency_p95: float
+    alloc_latency_p99: float
+    alloc_latency_p999: float
+    free_latency_p50: float
+    free_latency_p95: float
+    free_latency_p99: float
+    free_latency_p999: float
+
+    # Cross-thread analysis
+    cross_thread_free_count: int
+    cross_thread_free_pct: float
+
+    # Distributions
+    size_histogram: SizeHistogram
+    thread_stats: list[ThreadMemoryStats]
+    fragmentation: FragmentationMetrics
+
+    # Leak detection (if enabled)
+    leaked_allocations: list[AllocationRecord] | None
+    leaked_bytes: int
+
+    # Timing
+    duration_seconds: float
+    start_time: datetime
+    end_time: datetime
+```
+
+#### Profiler API
+
+```python
+class MemoryProfiler:
+    def __init__(
+        self,
+        *,
+        track_sizes: bool = True,
+        track_latency: bool = True,
+        track_per_thread: bool = False,
+        track_cross_thread: bool = True,
+        detect_leaks: bool = False,
+        capture_stacks: bool = False,      # For leak detection
+        sample_rate: float = 1.0,          # 1.0 = all, 0.1 = 10%
+        latency_buckets: int = 1000,       # For percentile calculation
+    ):
+        """Initialize memory profiler with specified features."""
+        ...
+
+    def __enter__(self) -> 'MemoryProfiler':
+        """Start profiling."""
+        ...
+
+    def __exit__(self, *args) -> None:
+        """Stop profiling."""
+        ...
+
+    def start(self) -> None:
+        """Start profiling (alternative to context manager)."""
+        ...
+
+    def stop(self) -> None:
+        """Stop profiling."""
+        ...
+
+    def snapshot(self) -> MemoryProfilerReport:
+        """Get current statistics without stopping."""
+        ...
+
+    def report(self) -> MemoryProfilerReport:
+        """Get final report (call after stop)."""
+        ...
+
+    def reset(self) -> None:
+        """Reset all statistics."""
+        ...
+
+    # Export methods
+    def to_json(self, path: str | Path) -> None:
+        """Export report to JSON."""
+        ...
+
+    def to_csv(self, path: str | Path) -> None:
+        """Export report to CSV."""
+        ...
+
+    def to_html(self, path: str | Path) -> None:
+        """Generate HTML dashboard report."""
+        ...
+
+    def to_prometheus(self) -> str:
+        """Export metrics in Prometheus format."""
+        ...
+```
+
+#### Usage Examples
+
+```python
+from concurrent_collections import MemoryProfiler, SkipListMap
+
+# Basic profiling
+with MemoryProfiler() as prof:
+    m = SkipListMap()
+    for i in range(100000):
+        m[f"key_{i}"] = f"value_{i}"
+
+report = prof.report()
+print(f"Peak memory: {report.peak_allocated / 1024**2:.1f} MB")
+print(f"Alloc latency P99: {report.alloc_latency_p99:.0f} ns")
+print(f"Cross-thread frees: {report.cross_thread_free_pct:.1f}%")
+
+# Size distribution analysis
+print("\nHot allocation sizes:")
+for size_range, count in report.size_histogram.hot_sizes(5):
+    print(f"  {size_range}: {count:,} allocations")
+
+# Leak detection
+with MemoryProfiler(detect_leaks=True, capture_stacks=True) as prof:
+    # ... workload that might leak ...
+    pass
+
+report = prof.report()
+if report.leaked_bytes > 0:
+    print(f"LEAK: {report.leaked_bytes} bytes in {len(report.leaked_allocations)} allocations")
+    for leak in report.leaked_allocations[:5]:
+        print(f"  {leak.size} bytes at {leak.timestamp}")
+        if leak.stack_trace:
+            for frame in leak.stack_trace[:3]:
+                print(f"    {frame}")
+
+# Per-thread analysis (free-threaded Python)
+with MemoryProfiler(track_per_thread=True) as prof:
+    # ... multi-threaded workload ...
+    pass
+
+report = prof.report()
+for ts in report.thread_stats:
+    print(f"Thread {ts.thread_id}: {ts.alloc_count} allocs, "
+          f"{ts.cross_thread_frees_sent} cross-thread frees sent")
+
+# Export to HTML dashboard
+prof.to_html("memory_report.html")
+```
+
+#### HTML Dashboard
+
+The HTML report includes interactive visualizations:
+
+1. **Memory Timeline** - Allocated bytes over time with peak marker
+2. **Allocation Size Heatmap** - Size distribution visualization
+3. **Latency Distribution** - Histogram of alloc/free latencies
+4. **Thread Activity** - Per-thread allocation patterns
+5. **Cross-Thread Flow** - Sankey diagram of cross-thread frees
+6. **Fragmentation Gauge** - Current fragmentation level
+7. **Recommendations** - Automated suggestions based on findings
+
+#### Prometheus Metrics
+
+```prometheus
+# Memory allocation metrics
+cc_memory_alloc_total 1523456
+cc_memory_free_total 1523400
+cc_memory_alloc_bytes_total 98765432
+cc_memory_free_bytes_total 98760000
+cc_memory_current_bytes 5432
+cc_memory_peak_bytes 102400000
+
+# Latency metrics (histogram)
+cc_memory_alloc_latency_bucket{le="10"} 1000000
+cc_memory_alloc_latency_bucket{le="50"} 1400000
+cc_memory_alloc_latency_bucket{le="100"} 1500000
+cc_memory_alloc_latency_bucket{le="+Inf"} 1523456
+
+# Cross-thread metrics
+cc_memory_cross_thread_free_total 45678
+cc_memory_cross_thread_free_ratio 0.03
+
+# Fragmentation
+cc_memory_fragmentation_internal 0.12
+cc_memory_fragmentation_external 0.05
+```
+
+### Jupyter Notebook Integration
+
+See `examples/memory_performance_analysis.ipynb` for interactive analysis.
+
 ## Open Questions
 
 | Question | Options | Current Leaning |

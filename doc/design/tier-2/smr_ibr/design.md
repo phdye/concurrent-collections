@@ -331,6 +331,368 @@ static void skiplist_node_free(void* ptr, size_t size) {
 - Epoch advance is CAS-based (single writer wins)
 - Scales well to 32+ threads
 
+## Instrumentation & Profiling
+
+### SMRProfiler
+
+The `SMRProfiler` provides comprehensive analysis of safe memory reclamation behavior, helping users understand memory lifecycle, identify stalls, and optimize reclamation timing.
+
+#### Features Overview
+
+| Feature | Purpose | Overhead |
+|---------|---------|----------|
+| **Epoch Timeline** | Visualize epoch advancement over time | Low |
+| **Limbo List Depth** | Track pending nodes per thread | Low |
+| **Reclamation Latency** | Time between retire and free | Medium |
+| **Safe Epoch Lag** | Gap between global and safe epoch | Low |
+| **Stalled Thread Detection** | Identify blocking threads | Low |
+| **Poll Efficiency** | Nodes freed per poll call | Low |
+| **Memory Pressure** | Pending bytes trending toward bound | Low |
+| **Per-Thread Activity** | Enter/exit/retire patterns | Medium |
+| **Epoch Stall Analyzer** | Diagnose reclamation delays | Medium |
+
+#### Data Structures
+
+```python
+@dataclass
+class EpochEvent:
+    """Record of an epoch-related event."""
+    timestamp: float
+    event_type: str           # "advance", "enter", "exit", "retire", "reclaim"
+    thread_id: int
+    epoch: int
+    details: dict | None      # Event-specific data
+
+@dataclass
+class LimboSnapshot:
+    """Point-in-time limbo list state."""
+    timestamp: float
+    thread_id: int
+    epoch_0_count: int        # Nodes in epoch % 3 == 0
+    epoch_1_count: int        # Nodes in epoch % 3 == 1
+    epoch_2_count: int        # Nodes in epoch % 3 == 2
+    total_count: int
+    total_bytes: int
+
+@dataclass
+class ReclamationRecord:
+    """Record of a node's lifecycle."""
+    retire_time: float
+    retire_epoch: int
+    retire_thread: int
+    reclaim_time: float | None      # None if still pending
+    reclaim_epoch: int | None
+    reclaim_thread: int | None
+    latency_ns: int | None          # reclaim_time - retire_time
+    size: int
+
+@dataclass
+class ThreadSMRStats:
+    """Per-thread SMR statistics."""
+    thread_id: int
+    thread_name: str | None
+
+    # Activity counts
+    enter_count: int
+    exit_count: int
+    retire_count: int
+    poll_count: int
+    reclaim_count: int
+
+    # Time in critical section
+    total_cs_time_ns: int           # Total time in critical section
+    avg_cs_time_ns: float
+    max_cs_time_ns: int
+
+    # Limbo stats
+    peak_limbo_count: int
+    peak_limbo_bytes: int
+
+    # Stall info
+    stall_count: int                # Times this thread was considered stalled
+    caused_stall_epochs: int        # Epochs this thread blocked advancement
+
+@dataclass
+class StallEvent:
+    """Record of a stall event."""
+    timestamp: float
+    stalled_thread_id: int
+    stalled_at_epoch: int
+    global_epoch: int
+    epoch_lag: int
+    duration_ns: int | None         # How long until resolved
+    resolution: str                 # "exited", "advanced", "neutralized"
+
+@dataclass
+class SMRProfilerReport:
+    """Complete SMR profiler report."""
+    # Global epoch statistics
+    start_epoch: int
+    end_epoch: int
+    epoch_advances: int
+    avg_epoch_duration_ns: float
+
+    # Safe epoch statistics
+    safe_epoch_lag_avg: float       # Average lag behind global
+    safe_epoch_lag_max: int
+
+    # Reclamation statistics
+    total_retired: int
+    total_reclaimed: int
+    pending_count: int
+    pending_bytes: int
+
+    # Latency percentiles (retire to reclaim, nanoseconds)
+    reclaim_latency_p50: float
+    reclaim_latency_p95: float
+    reclaim_latency_p99: float
+    reclaim_latency_p999: float
+    reclaim_latency_max: float
+
+    # Poll statistics
+    poll_count: int
+    nodes_per_poll_avg: float
+    nodes_per_poll_max: int
+    empty_poll_pct: float           # Polls that freed nothing
+
+    # Memory pressure
+    peak_pending_count: int
+    peak_pending_bytes: int
+    memory_bound_utilization: float  # peak / theoretical_max
+
+    # Thread statistics
+    thread_stats: list[ThreadSMRStats]
+
+    # Stall analysis
+    stall_events: list[StallEvent]
+    total_stall_time_ns: int
+    stall_count: int
+
+    # Timeline (if enabled)
+    epoch_timeline: list[EpochEvent] | None
+    limbo_snapshots: list[LimboSnapshot] | None
+
+    # Timing
+    duration_seconds: float
+    start_time: datetime
+    end_time: datetime
+```
+
+#### Profiler API
+
+```python
+class SMRProfiler:
+    def __init__(
+        self,
+        *,
+        track_timeline: bool = False,       # Full event timeline (high overhead)
+        track_per_thread: bool = True,
+        track_latency: bool = True,
+        track_limbo_snapshots: bool = False,
+        snapshot_interval_ms: float = 100,  # For limbo snapshots
+        sample_rate: float = 1.0,
+        stall_threshold_epochs: int = 10,   # Epochs before considered stalled
+    ):
+        """Initialize SMR profiler."""
+        ...
+
+    def __enter__(self) -> 'SMRProfiler':
+        """Start profiling."""
+        ...
+
+    def __exit__(self, *args) -> None:
+        """Stop profiling."""
+        ...
+
+    def start(self) -> None:
+        """Start profiling."""
+        ...
+
+    def stop(self) -> None:
+        """Stop profiling."""
+        ...
+
+    def snapshot(self) -> SMRProfilerReport:
+        """Get current statistics without stopping."""
+        ...
+
+    def report(self) -> SMRProfilerReport:
+        """Get final report."""
+        ...
+
+    def reset(self) -> None:
+        """Reset all statistics."""
+        ...
+
+    # Analysis methods
+    def analyze_stalls(self) -> list[dict]:
+        """Detailed stall analysis with recommendations."""
+        ...
+
+    def find_slow_threads(self, threshold_epochs: int = 5) -> list[int]:
+        """Find threads that frequently cause epoch lag."""
+        ...
+
+    def memory_pressure_events(self, threshold_pct: float = 0.8) -> list[dict]:
+        """Find times when pending memory exceeded threshold."""
+        ...
+
+    # Export methods
+    def to_json(self, path: str | Path) -> None:
+        """Export report to JSON."""
+        ...
+
+    def to_html(self, path: str | Path) -> None:
+        """Generate HTML dashboard report."""
+        ...
+
+    def to_prometheus(self) -> str:
+        """Export metrics in Prometheus format."""
+        ...
+```
+
+#### Usage Examples
+
+```python
+from concurrent_collections import SMRProfiler, SkipListMap
+import threading
+
+# Basic SMR profiling
+with SMRProfiler() as prof:
+    m = SkipListMap()
+
+    def worker(n):
+        for i in range(n):
+            m[f"key_{threading.current_thread().ident}_{i}"] = i
+            if i % 2 == 0:
+                m.pop(f"key_{threading.current_thread().ident}_{i-1}", None)
+
+    threads = [threading.Thread(target=worker, args=(10000,)) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+report = prof.report()
+print(f"Epoch advances: {report.epoch_advances}")
+print(f"Reclaim latency P99: {report.reclaim_latency_p99 / 1000:.1f} µs")
+print(f"Peak pending: {report.peak_pending_count} nodes ({report.peak_pending_bytes / 1024:.1f} KB)")
+print(f"Memory bound utilization: {report.memory_bound_utilization:.1%}")
+
+# Stall analysis
+if report.stall_events:
+    print(f"\nStall events: {len(report.stall_events)}")
+    for stall in report.stall_events[:3]:
+        print(f"  Thread {stall.stalled_thread_id} stalled for {stall.duration_ns/1e6:.1f} ms "
+              f"at epoch {stall.stalled_at_epoch} (lag: {stall.epoch_lag})")
+
+# Per-thread breakdown
+print("\nPer-thread stats:")
+for ts in sorted(report.thread_stats, key=lambda x: -x.retire_count)[:5]:
+    print(f"  Thread {ts.thread_id}: {ts.retire_count} retires, "
+          f"{ts.avg_cs_time_ns/1000:.1f} µs avg CS time, "
+          f"{ts.stall_count} stalls caused")
+
+# Detailed stall analysis
+stall_analysis = prof.analyze_stalls()
+for analysis in stall_analysis:
+    print(f"\nStall pattern: {analysis['pattern']}")
+    print(f"  Frequency: {analysis['frequency']}")
+    print(f"  Recommendation: {analysis['recommendation']}")
+
+# Export to HTML with visualizations
+prof.to_html("smr_report.html")
+```
+
+#### HTML Dashboard
+
+The HTML report includes interactive visualizations:
+
+1. **Epoch Timeline** - Global epoch over time with advances marked
+2. **Safe Epoch Lag Chart** - Gap between global and safe epoch
+3. **Limbo Depth Heatmap** - Per-thread pending nodes over time
+4. **Reclamation Latency Histogram** - Distribution of retire-to-free times
+5. **Thread Activity Timeline** - Enter/exit patterns per thread
+6. **Memory Pressure Gauge** - Current vs maximum pending memory
+7. **Stall Event Log** - Detailed stall events with context
+8. **Recommendations Panel** - Automated suggestions
+
+#### Prometheus Metrics
+
+```prometheus
+# Epoch metrics
+cc_smr_global_epoch 12345
+cc_smr_safe_epoch 12343
+cc_smr_epoch_advances_total 12344
+cc_smr_epoch_lag 2
+
+# Reclamation metrics
+cc_smr_retired_total 9876543
+cc_smr_reclaimed_total 9876500
+cc_smr_pending_count 43
+cc_smr_pending_bytes 5432
+
+# Latency histogram (nanoseconds)
+cc_smr_reclaim_latency_bucket{le="1000"} 5000000
+cc_smr_reclaim_latency_bucket{le="10000"} 8000000
+cc_smr_reclaim_latency_bucket{le="100000"} 9500000
+cc_smr_reclaim_latency_bucket{le="+Inf"} 9876543
+
+# Poll metrics
+cc_smr_poll_total 123456
+cc_smr_poll_empty_total 12345
+cc_smr_nodes_per_poll_avg 80.1
+
+# Stall metrics
+cc_smr_stall_events_total 5
+cc_smr_stall_time_total_ns 50000000
+
+# Memory pressure
+cc_smr_peak_pending_count 1024
+cc_smr_memory_bound_utilization 0.67
+```
+
+#### Debugging Tools
+
+```python
+# Epoch stall analyzer
+from concurrent_collections.debug import EpochStallAnalyzer
+
+analyzer = EpochStallAnalyzer()
+analyzer.attach()  # Start monitoring
+
+# ... run workload ...
+
+# Get detailed diagnosis
+diagnosis = analyzer.diagnose()
+print(f"Stall cause: {diagnosis.primary_cause}")
+print(f"Blocking thread: {diagnosis.blocking_thread}")
+print(f"Thread state: {diagnosis.thread_state}")
+print(f"Recommendation: {diagnosis.recommendation}")
+
+# Thread activity heatmap
+from concurrent_collections.debug import ThreadActivityMonitor
+
+monitor = ThreadActivityMonitor()
+with monitor:
+    # ... run workload ...
+    pass
+
+# Generate heatmap showing enter/exit patterns
+monitor.plot_heatmap("thread_activity.png")
+```
+
+### Jupyter Notebook Integration
+
+See `examples/smr_performance_analysis.ipynb` for interactive analysis including:
+- Epoch timeline visualization
+- Limbo depth analysis
+- Stall pattern detection
+- Memory pressure monitoring
+- Optimization recommendations
+
+See `examples/memory_subsystem_comparison.ipynb` for comparing IBR vs DEBRA+ performance.
+
 ## Open Questions
 
 | Question | Options | Impact |
