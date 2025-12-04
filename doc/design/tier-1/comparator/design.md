@@ -1352,6 +1352,50 @@ def export_to_datadog(report):
     statsd.increment('comparator.total_count', report.comparison_count)
 ```
 
+#### Interactive Analysis Notebook
+
+For hands-on performance analysis, use the provided Jupyter notebook:
+
+```
+examples/comparator_performance_analysis.ipynb
+```
+
+The notebook provides:
+- **Automated benchmarking** of your comparator vs baseline
+- **Visual latency distributions** with percentile charts
+- **Production impact estimates** based on your workload
+- **Actionable recommendations** with severity levels
+- **Export capabilities** for sharing results
+
+**Quick start:**
+```bash
+jupyter notebook examples/comparator_performance_analysis.ipynb
+```
+
+**What you'll get:**
+```
+================================================================
+RECOMMENDATIONS                                   Severity: 🟡 MODERATE
+================================================================
+
+📊 OVERHEAD ANALYSIS
+   Your comparator is +180% vs natural ordering (+250 ns/comparison)
+   ⚠️  Moderate overhead - consider optimization if this is a hot path
+
+📈 TAIL LATENCY ANALYSIS
+   P99/P50 ratio: 4.2x
+   ✅ Consistent latency - no tail latency issues
+
+🏭 PRODUCTION IMPACT
+   At 10,000 ops/sec: 8.5% of 1 CPU in comparisons
+   🟡 Moderate impact - consider key function if possible
+
+💡 SPECIFIC RECOMMENDATIONS
+   1. Consider using key= instead of cmp= if possible
+      Example: SkipListMap(key=str.lower) instead of cmp=...
+   2. Key functions extract once, compare many times
+```
+
 ### Decision Checklist
 
 Before writing a native comparator, verify:
