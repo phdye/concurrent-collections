@@ -741,12 +741,263 @@ compare_implementations({
 })
 ```
 
+### Instrumentation API: Point-to-Point Measurement
+
+The library provides an instrumentation API to measure comparator resource consumption relative to your overall program:
+
+```python
+from concurrent_collections import SkipListMap
+from concurrent_collections.instrumentation import ComparatorProfiler
+
+# Create container with your comparator
+m = SkipListMap(cmp=my_custom_comparator)
+
+# === Point A: Start measurement ===
+profiler = ComparatorProfiler()
+profiler.start()
+
+# Your actual workload (not a synthetic benchmark)
+for record in database_records:
+    m[record.key] = record
+
+results = []
+for query in user_queries:
+    results.append(m.get(query.key))
+
+# === Point B: End measurement ===
+report = profiler.stop()
+
+# Get resource breakdown
+print(report)
+```
+
+**Example output:**
+```
+ComparatorProfiler Report
+=========================
+Wall time:              2.345 sec
+  Comparator time:      0.412 sec (17.6%)
+  Other time:           1.933 sec (82.4%)
+
+Comparisons:            1,234,567
+  Avg per comparison:   334 ns
+
+CPU time:               2.280 sec
+  Comparator CPU:       0.398 sec (17.5%)
+
+Memory allocated:       0 bytes (comparator uses no heap)
+
+Recommendation: Comparator overhead is MODERATE (10-30%)
+                Consider key function if not already using one.
+```
+
+#### Profiler API
+
+```python
+class ComparatorProfiler:
+    """Measure comparator resource consumption relative to total program."""
+
+    def start(self) -> None:
+        """Begin profiling. Call at point A."""
+
+    def stop(self) -> ProfilerReport:
+        """End profiling. Call at point B. Returns report."""
+
+    def reset(self) -> None:
+        """Reset counters without stopping."""
+
+    # Context manager support
+    def __enter__(self) -> 'ComparatorProfiler':
+        self.start()
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.stop()
+
+
+class ProfilerReport:
+    """Resource consumption report."""
+
+    # Timing
+    wall_time_sec: float           # Total wall clock time (A to B)
+    comparator_time_sec: float     # Time spent in comparator functions
+    comparator_time_pct: float     # comparator_time / wall_time * 100
+
+    # Comparison counts
+    comparison_count: int          # Total comparisons performed
+    avg_comparison_ns: float       # Average nanoseconds per comparison
+
+    # CPU time (if available)
+    cpu_time_sec: float | None
+    comparator_cpu_sec: float | None
+    comparator_cpu_pct: float | None
+
+    # Memory (if tracked)
+    comparator_alloc_bytes: int
+
+    # Per-container breakdown
+    containers: dict[str, ContainerStats]
+
+    def __str__(self) -> str:
+        """Human-readable report."""
+
+    def to_dict(self) -> dict:
+        """Machine-readable format."""
+
+    def recommendation(self) -> str:
+        """Suggest optimization based on measurements."""
+```
+
+#### Context Manager Usage
+
+```python
+from concurrent_collections.instrumentation import ComparatorProfiler
+
+m = SkipListMap(cmp=my_comparator)
+
+# Simple context manager
+with ComparatorProfiler() as profiler:
+    # Point A (entering context)
+
+    process_batch(m, data)
+
+    # Point B (exiting context)
+
+print(profiler.report)
+print(f"Comparator consumed {profiler.report.comparator_time_pct:.1f}% of total time")
+```
+
+#### Multiple Containers
+
+```python
+from concurrent_collections import SkipListMap, TreeMap
+from concurrent_collections.instrumentation import ComparatorProfiler
+
+# Multiple containers with different comparators
+map1 = SkipListMap(cmp=cmp_a, name="users")
+map2 = TreeMap(cmp=cmp_b, name="orders")
+
+with ComparatorProfiler() as profiler:
+    # Your workload using both containers
+    for user in users:
+        map1[user.id] = user
+    for order in orders:
+        map2[order.id] = order
+
+    # Queries
+    for query in queries:
+        user = map1.get(query.user_id)
+        orders = map2.range(query.start, query.end)
+
+# Per-container breakdown
+for name, stats in profiler.report.containers.items():
+    print(f"{name}: {stats.comparison_count:,} comparisons, "
+          f"{stats.time_sec:.3f}s ({stats.time_pct:.1f}%)")
+```
+
+**Output:**
+```
+users: 50,000 comparisons, 0.125s (5.3%)
+orders: 1,200,000 comparisons, 0.892s (37.8%)
+```
+
+#### Integration with Standard Profiling Tools
+
+```python
+import cProfile
+from concurrent_collections.instrumentation import ComparatorProfiler
+
+# Layer our profiler with cProfile for full picture
+profiler = ComparatorProfiler()
+cprofiler = cProfile.Profile()
+
+profiler.start()
+cprofiler.enable()
+
+# Your workload
+run_application()
+
+cprofiler.disable()
+report = profiler.stop()
+
+# Now you have:
+# 1. cProfile for overall hotspots
+# 2. ComparatorProfiler for comparator-specific breakdown
+
+print(f"\n=== Comparator Impact ===")
+print(f"Comparator: {report.comparator_time_pct:.1f}% of wall time")
+print(f"If this is high, see recommendations below:")
+print(report.recommendation())
+```
+
+#### Lightweight Sampling Mode
+
+For production use with minimal overhead:
+
+```python
+from concurrent_collections.instrumentation import ComparatorProfiler
+
+# Sample 1% of comparisons (low overhead)
+with ComparatorProfiler(sample_rate=0.01) as profiler:
+    run_production_workload()
+
+# Extrapolated results
+print(f"Estimated comparisons: {profiler.report.comparison_count:,}")
+print(f"Estimated comparator time: {profiler.report.comparator_time_pct:.1f}%")
+```
+
+#### Programmatic Decision Making
+
+```python
+from concurrent_collections.instrumentation import ComparatorProfiler, OptimizationLevel
+
+with ComparatorProfiler() as profiler:
+    run_workload()
+
+# Get actionable recommendation
+level = profiler.report.optimization_level
+
+if level == OptimizationLevel.NONE_NEEDED:
+    print("Comparator overhead is negligible (<5%)")
+elif level == OptimizationLevel.CONSIDER_KEY_FUNCTION:
+    print("Consider using key= parameter instead of cmp=")
+elif level == OptimizationLevel.CONSIDER_NATIVE:
+    print("Consider implementing a native comparator")
+elif level == OptimizationLevel.CRITICAL:
+    print("Comparator is a critical bottleneck (>50%)")
+
+# Or get detailed recommendation string
+print(profiler.report.recommendation())
+```
+
+#### Logging Integration
+
+```python
+import logging
+from concurrent_collections.instrumentation import ComparatorProfiler
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("myapp.perf")
+
+with ComparatorProfiler(logger=logger, log_interval=10.0) as profiler:
+    # Logs stats every 10 seconds during long-running workloads
+    run_long_workload()
+```
+
+**Log output:**
+```
+INFO:myapp.perf:ComparatorProfiler [10.0s]: 234,567 comparisons, 18.2% of time
+INFO:myapp.perf:ComparatorProfiler [20.0s]: 512,345 comparisons, 17.8% of time
+INFO:myapp.perf:ComparatorProfiler [final]: 892,123 comparisons, 17.9% of time
+```
+
 ### Decision Checklist
 
 Before writing a native comparator, verify:
 
-- [ ] **Measured baseline**: Know your current ops/sec
-- [ ] **Identified bottleneck**: Comparison is >20% of operation time
+- [ ] **Measured in context**: Used `ComparatorProfiler` during actual workload
+- [ ] **Identified bottleneck**: Comparator is >20% of wall time in your application
+- [ ] **Quantified impact**: Know exact comparison count and time
 - [ ] **Estimated improvement**: Native comparator would provide >2x speedup
 - [ ] **Justified complexity**: Maintenance cost is worth the performance gain
 - [ ] **Tested correctness**: Native comparator produces identical ordering
