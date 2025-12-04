@@ -2,7 +2,7 @@
 
 ## Session Date
 
-2024-12-04
+2025-12-04
 
 ## Purpose
 
@@ -75,66 +75,79 @@ Comprehensive instructions for creating design documentation for new software pr
 | Documentation instructions | `ref/complete-design.md` | Complete |
 | This handoff | `ref/design-handoff.md` | Complete |
 
-### Documents NOT Yet Created
+### Formal Structure Created
 
-The formal design document structure per `ref/complete-design.md` has not been created:
+The formal design document structure per `ref/complete-design.md` has been created:
 
 | Document | Location | Status |
 |----------|----------|--------|
-| Design capture | `doc/design/design-capture.md` | Not created |
-| Module order | `doc/design/module-order.md` | Not created |
-| Per-module specs | `doc/design/tier-N/<module>/` | Not created |
-| Progress tracking | `doc/implementation/progress.md` | Not created |
-| Templates | `doc/design/_templates/` | Not created |
+| Design capture | `doc/design/design-capture.md` | Complete |
+| Module order | `doc/design/porting-order.md` | Complete |
+| Templates | `doc/design/_templates/` | Complete (5 templates) |
+| Tier 0 | `doc/design/tier-0/` | Complete (all 4 modules documented) |
+| Tier 1-5 | `doc/design/tier-{1-5}/` | Structure created (README + directories) |
+| Progress tracking | `doc/implementation/progress.md` | Complete |
+| Session handoff | `doc/implementation/handoff.md` | Complete |
+
+### Tier 0 Module Documentation
+
+| Module | design.md | spec.md | tests.md | platform.md |
+|--------|-----------|---------|----------|-------------|
+| arch_detect | ✅ | ✅ | ✅ | ✅ |
+| atomics | ✅ | ✅ | ✅ | ✅ |
+| backoff | ✅ | ✅ | ✅ | N/A |
+| config | ✅ | ✅ | ✅ | N/A |
+
+### Remaining Work
+
+| Document | Location | Notes |
+|----------|----------|-------|
+| Tier 1-5 module docs | `doc/design/tier-{1-5}/*/` | Empty directories created |
+| Implementation | `src/` | Not started |
 
 ---
 
 ## Next Steps
 
-### Option A: Formalize Design Structure
+### Completed
 
-Convert `doc/Design.v3.md` into the formal structure defined in `ref/complete-design.md`:
+- ✅ Formal design structure created (`doc/design/`)
+- ✅ Tier 0 documentation complete (all 4 modules)
+- ✅ Implementation tracking created (`doc/implementation/`)
+- ✅ Tier 1-5 directory structure with README files
 
-1. Create directory structure:
-   ```
-   doc/
-     design/
-       design-capture.md
-       module-order.md
-       _templates/
-       tier-0/
-       tier-1/
-       ...
-     implementation/
-       progress.md
-       handoff.md
-   ```
+### Priority 1: Begin Tier 1 Design
 
-2. Extract content from `Design.v3.md` into:
-   - `design-capture.md` — Project configuration, scope, decisions
-   - `module-order.md` — Tier definitions, module list, completion criteria
-   - Per-module directories with `design.md`, `spec.md`, `tests.md`
+Create documentation for `comparator` module:
+- design.md, spec.md, tests.md
 
-3. Define tiers for concurrent_collections:
-   - Tier 0: Foundation (SMR, atomics, platform detection)
-   - Tier 1: Core structures (SkipList, BST internals)
-   - Tier 2: Python bindings (SkipListMap, TreeMap, etc.)
-   - Tier 3: Queue/Stack family
-   - Tier 4: Utilities (Comparator, config, recipes)
+### Priority 2: Set Up Build Infrastructure
 
-### Option B: Begin Implementation Planning
+1. Create `pyproject.toml`
+2. Configure C extension build
+3. Set up pytest infrastructure
+4. Configure CI/CD (GitHub Actions)
 
-If design is considered sufficient in `Design.v3.md` form:
+### Priority 3: Begin Implementation
 
-1. Create `doc/implementation/progress.md` to track work
-2. Define implementation order
-3. Set up build infrastructure
-4. Begin Tier 0 implementation
+Start Tier 0 implementation:
+1. `arch_detect` — Simplest module
+2. `config` — Depends on arch_detect
+3. `atomics` — Core primitives
+4. `backoff` — Depends on arch_detect
 
-### Option C: Refine Design Further
+### Priority 4: Resolve Open Design Questions
 
-Areas that could use more detail:
+From `doc/design/design-capture.md`:
+- SMR thread registration approach
+- Frozen snapshot allocation strategy
+- Queue unbounded growth handling
+- LCRQ segment size
+- Backoff tuning strategy
 
+### Future: Additional Design Work
+
+Areas for further detail:
 1. **SMR internals** — IBR/DEBRA+ detailed design
 2. **C extension structure** — File organization, build system
 3. **Test infrastructure** — Stress test framework, linearizability checker
