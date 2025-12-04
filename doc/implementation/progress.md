@@ -10,10 +10,10 @@
 |------|--------|-------|
 | 0 | ✅ | All 4 modules designed; implementation not started |
 | 1 | ✅ | comparator module designed with instrumentation API |
-| 2 | ✅ | All 3 modules designed with TLA+ specs |
-| 3 | ⬜ | Directory structure created |
-| 4 | ⬜ | Directory structure created |
-| 5 | ⬜ | Directory structure created |
+| 2 | ✅ | All 3 modules designed with TLA+ specs and profilers |
+| 3 | ✅ | All 8 modules designed with TLA+ specs and profilers |
+| 4 | ✅ | All 10 modules designed with public API docs |
+| 5 | ✅ | BoundedSkipListMap designed |
 
 Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 
@@ -46,37 +46,37 @@ Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 
 ### Tier 3: Core Algorithms
 
-| Module | Design | Spec | Tests | Implementation | Notes |
-|--------|--------|------|-------|----------------|-------|
-| `skiplist_lockfree` | ⬜ | ⬜ | ⬜ | ⬜ | Needs TLA+ spec |
-| `skiplist_locked` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `bst_lockfree` | ⬜ | ⬜ | ⬜ | ⬜ | Needs TLA+ spec |
-| `bst_locked` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `scq` | ⬜ | ⬜ | ⬜ | ⬜ | Needs TLA+ spec |
-| `lcrq` | ⬜ | ⬜ | ⬜ | ⬜ | Needs TLA+ spec; x86-64 only |
-| `wcq` | ⬜ | ⬜ | ⬜ | ⬜ | Needs TLA+ spec |
-| `treiber` | ⬜ | ⬜ | ⬜ | ⬜ | Needs TLA+ spec |
+| Module | Design | Spec | Tests | TLA+ | Implementation | Notes |
+|--------|--------|------|-------|------|----------------|-------|
+| `skiplist_lockfree` | ✅ | ✅ | ✅ | ✅ | ⬜ | With SkipListProfiler |
+| `skiplist_locked` | ✅ | ✅ | ✅ | N/A | ⬜ | With profiler |
+| `bst_lockfree` | ✅ | ✅ | ✅ | ✅ | ⬜ | With BSTProfiler |
+| `bst_locked` | ✅ | ✅ | ✅ | N/A | ⬜ | With profiler |
+| `scq` | ✅ | ✅ | ✅ | ✅ | ⬜ | With QueueProfiler |
+| `lcrq` | ✅ | ✅ | ✅ | ✅ | ⬜ | x86-64 only |
+| `wcq` | ✅ | ✅ | ✅ | ✅ | ⬜ | Wait-free queue |
+| `treiber` | ✅ | ✅ | ✅ | ✅ | ⬜ | With StackProfiler |
 
 ### Tier 4: Public API
 
-| Module | Design | Spec | Tests | Implementation | Notes |
-|--------|--------|------|-------|----------------|-------|
-| `SkipListMap` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `SkipListSet` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `FrozenSkipListMap` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `FrozenSkipListSet` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `TreeMap` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `TreeSet` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `LockFreeQueue` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `FastQueue` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `WaitFreeQueue` | ⬜ | ⬜ | ⬜ | ⬜ | |
-| `LockFreeStack` | ⬜ | ⬜ | ⬜ | ⬜ | |
+| Module | Design | Implementation | Notes |
+|--------|--------|----------------|-------|
+| `SkipListMap` | ✅ | ⬜ | Primary ordered map |
+| `SkipListSet` | ✅ | ⬜ | Ordered set |
+| `FrozenSkipListMap` | ✅ | ⬜ | Immutable snapshot |
+| `FrozenSkipListSet` | ✅ | ⬜ | Immutable snapshot |
+| `TreeMap` | ✅ | ⬜ | BST-based map |
+| `TreeSet` | ✅ | ⬜ | BST-based set |
+| `LockFreeQueue` | ✅ | ⬜ | SCQ backend |
+| `FastQueue` | ✅ | ⬜ | Auto-selects LCRQ/SCQ |
+| `WaitFreeQueue` | ✅ | ⬜ | Bounded latency |
+| `LockFreeStack` | ✅ | ⬜ | Elimination backoff |
 
 ### Tier 5: Extensions
 
-| Module | Design | Spec | Tests | Implementation | Notes |
-|--------|--------|------|-------|----------------|-------|
-| `BoundedSkipListMap` | ⬜ | ⬜ | ⬜ | ⬜ | |
+| Module | Design | Implementation | Notes |
+|--------|--------|----------------|-------|
+| `BoundedSkipListMap` | ✅ | ⬜ | Size-limited with eviction |
 
 ---
 
@@ -110,10 +110,10 @@ Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 
 ## Current Focus
 
-Tier 0, 1, and 2 design documentation complete. Next steps:
-1. Begin Tier 3 design (core algorithms)
-2. Set up build infrastructure
-3. Start implementation of Tier 0 modules
+ALL DESIGN DOCUMENTATION COMPLETE (Tiers 0-5). Next steps:
+1. Set up build infrastructure (pyproject.toml, C extension build)
+2. Start implementation of Tier 0 modules
+3. Create CI/CD pipelines
 
 ---
 
@@ -128,7 +128,37 @@ None currently.
 | Milestone | Status | Notes |
 |-----------|--------|-------|
 | M1: Foundation (Tier 0) | 🔶 | Design complete; implementation not started |
-| M2: Memory Safe (Tier 0-2) | 🔶 | Design complete; implementation not started |
-| M3: Skip List (Tier 0-3 partial) | ⬜ | |
-| M4: Full Containers (Tier 0-4) | ⬜ | |
-| M5: Production (Tier 0-5) | ⬜ | |
+| M2: Memory Safe (Tier 0-2) | 🔶 | Design complete with TLA+ specs |
+| M3: Skip List (Tier 0-3 partial) | 🔶 | Design complete with profilers |
+| M4: Full Containers (Tier 0-4) | 🔶 | Design complete |
+| M5: Production (Tier 0-5) | 🔶 | Design complete |
+
+---
+
+## Jupyter Notebooks Created
+
+| Notebook | Purpose |
+|----------|---------|
+| `comparator_performance_analysis.ipynb` | Tier 1 comparator benchmarking |
+| `memory_performance_analysis.ipynb` | Tier 2 mimalloc analysis |
+| `smr_performance_analysis.ipynb` | Tier 2 SMR profiling |
+| `memory_subsystem_comparison.ipynb` | IBR vs DEBRA+ comparison |
+| `data_structure_performance.ipynb` | Tier 3 data structure comparison |
+| `queue_comparison.ipynb` | SCQ vs LCRQ vs WCQ |
+| `public_api_guide.ipynb` | Tier 4 API usage guide |
+
+---
+
+## Profilers Created
+
+| Profiler | Module | Features |
+|----------|--------|----------|
+| ComparatorProfiler | Tier 1 | Latency, dispatch tracking, type breakdown |
+| MemoryProfiler | Tier 2 | Allocation histogram, fragmentation, leaks |
+| SMRProfiler | Tier 2 | Epoch timeline, limbo depth, stalls |
+| DEBRAProfiler | Tier 2 | Neutralization events, signal latency |
+| SkipListProfiler | Tier 3 | CAS tracking, level distribution, helping |
+| BSTProfiler | Tier 3 | Depth analysis, helping metrics |
+| QueueProfiler | Tier 3 | Throughput, utilization, contention |
+| WCQProfiler | Tier 3 | Wait-free step verification |
+| StackProfiler | Tier 3 | Elimination effectiveness |
