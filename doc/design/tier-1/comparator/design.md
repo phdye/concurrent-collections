@@ -797,6 +797,28 @@ Recommendation: Comparator overhead is MODERATE (10-30%)
 class ComparatorProfiler:
     """Measure comparator resource consumption relative to total program."""
 
+    def __init__(
+        self,
+        *,
+        sample_rate: float = 1.0,           # 1.0 = all comparisons, 0.01 = 1%
+        trace_samples: int = 0,             # Number of comparisons to capture for debugging
+        track_percentiles: bool = True,     # Compute P50/P95/P99 (slight overhead)
+        logger: logging.Logger | None = None,
+        log_interval: float | None = None,  # Log stats every N seconds
+        threshold_pct: float | None = None, # Alert threshold (percentage)
+        on_threshold: Callable[[ProfilerReport], None] | None = None,
+    ):
+        """
+        Args:
+            sample_rate: Fraction of comparisons to time (1.0 = all, 0.01 = 1%)
+            trace_samples: Capture N comparison samples with operands for debugging
+            track_percentiles: Whether to compute latency percentiles (adds overhead)
+            logger: Logger for periodic stats during long workloads
+            log_interval: Seconds between log messages (requires logger)
+            threshold_pct: Alert when comparator overhead exceeds this percentage
+            on_threshold: Callback when threshold exceeded
+        """
+
     def start(self) -> None:
         """Begin profiling. Call at point A."""
 
@@ -805,6 +827,10 @@ class ComparatorProfiler:
 
     def reset(self) -> None:
         """Reset counters without stopping."""
+
+    @property
+    def report(self) -> ProfilerReport:
+        """Get current report without stopping."""
 
     # Context manager support
     def __enter__(self) -> 'ComparatorProfiler':
@@ -827,6 +853,13 @@ class ProfilerReport:
     comparison_count: int          # Total comparisons performed
     avg_comparison_ns: float       # Average nanoseconds per comparison
 
+    # Latency percentiles (nanoseconds)
+    p50_comparison_ns: float       # Median comparison latency
+    p95_comparison_ns: float       # 95th percentile latency
+    p99_comparison_ns: float       # 99th percentile latency
+    p999_comparison_ns: float      # 99.9th percentile (tail latency)
+    max_comparison_ns: float       # Maximum observed latency
+
     # CPU time (if available)
     cpu_time_sec: float | None
     comparator_cpu_sec: float | None
@@ -838,14 +871,53 @@ class ProfilerReport:
     # Per-container breakdown
     containers: dict[str, ContainerStats]
 
+    # Per-thread breakdown (for free-threaded Python)
+    threads: dict[int, ThreadStats]
+
+    # Sampled comparison traces (if tracing enabled)
+    traces: list[ComparisonTrace]
+
     def __str__(self) -> str:
         """Human-readable report."""
 
     def to_dict(self) -> dict:
         """Machine-readable format."""
 
+    def to_json(self, path: str | Path | None = None) -> str:
+        """Export as JSON. If path provided, writes to file and returns path."""
+
+    def to_csv(self, path: str | Path) -> None:
+        """Export timing data as CSV for spreadsheet analysis."""
+
+    def to_dataframe(self) -> 'pandas.DataFrame':
+        """Export as pandas DataFrame for analysis in Jupyter/notebooks."""
+
+    def to_html(self, path: str | Path) -> None:
+        """Generate visual HTML report with charts."""
+
     def recommendation(self) -> str:
         """Suggest optimization based on measurements."""
+
+
+class ThreadStats:
+    """Per-thread comparison statistics."""
+    thread_id: int
+    thread_name: str | None
+    comparison_count: int
+    time_sec: float
+    time_pct: float                # Percentage of total comparator time
+    avg_comparison_ns: float
+
+
+class ComparisonTrace:
+    """Record of a sampled comparison for debugging."""
+    timestamp_ns: int              # When comparison occurred
+    container_name: str | None     # Which container
+    a: object                      # First operand (repr, not actual object)
+    b: object                      # Second operand (repr)
+    result: int                    # Comparison result (-1, 0, 1)
+    duration_ns: int               # How long this comparison took
+    thread_id: int                 # Which thread
 ```
 
 #### Context Manager Usage
@@ -989,6 +1061,295 @@ with ComparatorProfiler(logger=logger, log_interval=10.0) as profiler:
 INFO:myapp.perf:ComparatorProfiler [10.0s]: 234,567 comparisons, 18.2% of time
 INFO:myapp.perf:ComparatorProfiler [20.0s]: 512,345 comparisons, 17.8% of time
 INFO:myapp.perf:ComparatorProfiler [final]: 892,123 comparisons, 17.9% of time
+```
+
+#### Latency Percentiles
+
+Averages hide outliers. Use percentiles to catch GC pauses, lock contention, and other tail latency issues:
+
+```python
+from concurrent_collections.instrumentation import ComparatorProfiler
+
+with ComparatorProfiler(track_percentiles=True) as profiler:
+    run_workload()
+
+report = profiler.report
+
+print(f"Latency distribution:")
+print(f"  P50 (median):  {report.p50_comparison_ns:,.0f} ns")
+print(f"  P95:           {report.p95_comparison_ns:,.0f} ns")
+print(f"  P99:           {report.p99_comparison_ns:,.0f} ns")
+print(f"  P99.9:         {report.p999_comparison_ns:,.0f} ns")
+print(f"  Max:           {report.max_comparison_ns:,.0f} ns")
+
+# Detect GC or contention issues
+if report.p99_comparison_ns > report.p50_comparison_ns * 100:
+    print("WARNING: High tail latency detected!")
+    print("  This may indicate GC pauses or lock contention.")
+```
+
+**Example output:**
+```
+Latency distribution:
+  P50 (median):  280 ns
+  P95:           450 ns
+  P99:           1,200 ns
+  P99.9:         45,000 ns  <- GC pause!
+  Max:           2,100,000 ns
+```
+
+#### Export Formats
+
+Export profiling data for analysis in external tools:
+
+```python
+from concurrent_collections.instrumentation import ComparatorProfiler
+
+with ComparatorProfiler() as profiler:
+    run_workload()
+
+report = profiler.report
+
+# JSON export (for web dashboards, APIs)
+json_str = report.to_json()
+report.to_json("comparator_profile.json")
+
+# CSV export (for spreadsheets)
+report.to_csv("comparator_profile.csv")
+
+# pandas DataFrame (for Jupyter notebooks)
+df = report.to_dataframe()
+print(df.describe())
+
+# Plot in Jupyter
+import matplotlib.pyplot as plt
+df['comparison_time_ns'].hist(bins=50)
+plt.xlabel('Comparison time (ns)')
+plt.ylabel('Frequency')
+plt.title('Comparison Latency Distribution')
+plt.show()
+```
+
+**CSV output format:**
+```csv
+timestamp,container,thread_id,comparison_count,time_sec,avg_ns,p50_ns,p95_ns,p99_ns
+2025-12-04T10:30:00,users,140234,50000,0.125,2500,280,450,1200
+2025-12-04T10:30:00,orders,140234,1200000,0.892,743,280,420,980
+2025-12-04T10:30:00,orders,140567,800000,0.612,765,290,440,1100
+```
+
+#### Thread-Level Breakdown
+
+Critical for free-threaded Python (3.13+) to identify per-thread bottlenecks:
+
+```python
+from concurrent_collections.instrumentation import ComparatorProfiler
+import threading
+
+# Run multi-threaded workload
+with ComparatorProfiler() as profiler:
+    threads = [
+        threading.Thread(target=worker, args=(shared_map,))
+        for _ in range(8)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+# Analyze per-thread breakdown
+print(f"{'Thread ID':<12} {'Name':<15} {'Comparisons':>15} {'Time':>10} {'%':>8}")
+print("-" * 65)
+
+for thread_id, stats in profiler.report.threads.items():
+    print(f"{thread_id:<12} {stats.thread_name or 'N/A':<15} "
+          f"{stats.comparison_count:>15,} {stats.time_sec:>10.3f} "
+          f"{stats.time_pct:>7.1f}%")
+
+# Detect thread imbalance
+times = [s.time_sec for s in profiler.report.threads.values()]
+if max(times) > min(times) * 2:
+    print("\nWARNING: Thread imbalance detected!")
+    print("  Some threads spending much more time in comparisons.")
+```
+
+**Example output:**
+```
+Thread ID    Name            Comparisons       Time        %
+-----------------------------------------------------------------
+140234567890 Worker-0            312,456      0.125    12.5%
+140234567891 Worker-1            298,234      0.119    11.9%
+140234567892 Worker-2            315,678      0.126    12.6%
+140234567893 Worker-3          1,245,678      0.498    49.8%  <- Imbalance!
+```
+
+#### Comparison Tracing
+
+Capture actual comparison operands for debugging ordering issues:
+
+```python
+from concurrent_collections.instrumentation import ComparatorProfiler
+
+# Capture 100 sample comparisons
+with ComparatorProfiler(trace_samples=100) as profiler:
+    run_workload_with_strange_ordering()
+
+# Examine captured comparisons
+print("Sampled comparisons:")
+for i, trace in enumerate(profiler.report.traces[:10]):
+    print(f"  [{i}] cmp({trace.a!r}, {trace.b!r}) = {trace.result}")
+    print(f"      Container: {trace.container_name}, Thread: {trace.thread_id}")
+    print(f"      Duration: {trace.duration_ns} ns")
+
+# Find slow comparisons
+slow = [t for t in profiler.report.traces if t.duration_ns > 10000]
+if slow:
+    print(f"\nFound {len(slow)} slow comparisons (>10μs):")
+    for trace in slow[:5]:
+        print(f"  cmp({trace.a!r}, {trace.b!r}) took {trace.duration_ns/1000:.1f}μs")
+```
+
+**Example output:**
+```
+Sampled comparisons:
+  [0] cmp('apple', 'banana') = -1
+      Container: fruits, Thread: 140234567890
+      Duration: 285 ns
+  [1] cmp('cherry', 'apple') = 1
+      Container: fruits, Thread: 140234567890
+      Duration: 290 ns
+  [2] cmp(MyObject(id=42), MyObject(id=17)) = 1
+      Container: objects, Thread: 140234567891
+      Duration: 45230 ns  <- Slow!
+```
+
+#### HTML Report
+
+Generate visual reports for sharing with teams:
+
+```python
+from concurrent_collections.instrumentation import ComparatorProfiler
+
+with ComparatorProfiler(track_percentiles=True) as profiler:
+    run_workload()
+
+# Generate HTML report
+profiler.report.to_html("comparator_report.html")
+print("Report saved to comparator_report.html")
+```
+
+The HTML report includes:
+- Summary statistics with color-coded recommendations
+- Latency histogram chart
+- Percentile breakdown chart
+- Per-container table
+- Per-thread table (if multi-threaded)
+- Comparison trace table (if tracing enabled)
+- Optimization recommendations
+
+**Report sections:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ComparatorProfiler Report - 2025-12-04 10:30:00               │
+├─────────────────────────────────────────────────────────────────┤
+│  SUMMARY                                                        │
+│  Wall time: 2.345s | Comparator: 17.6% | Status: ⚠️ MODERATE    │
+├─────────────────────────────────────────────────────────────────┤
+│  [Latency Histogram Chart]                                      │
+│  ████████████████████  P50: 280ns                               │
+│  ██████████           P95: 450ns                                │
+│  ███                  P99: 1,200ns                              │
+├─────────────────────────────────────────────────────────────────┤
+│  CONTAINERS                                                     │
+│  users:  50,000 comparisons, 0.125s (5.3%)                     │
+│  orders: 1,200,000 comparisons, 0.892s (37.8%)  ← Optimize!    │
+├─────────────────────────────────────────────────────────────────┤
+│  RECOMMENDATION                                                 │
+│  Container 'orders' has high comparison overhead (37.8%).       │
+│  Consider using key=str.lower instead of Python callable.       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Threshold Alerts
+
+Get notified when comparator overhead exceeds acceptable limits:
+
+```python
+from concurrent_collections.instrumentation import ComparatorProfiler
+import logging
+
+logger = logging.getLogger("myapp.perf")
+
+def handle_threshold_exceeded(report):
+    """Called when comparator overhead exceeds threshold."""
+    logger.warning(
+        f"Comparator overhead alert: {report.comparator_time_pct:.1f}% "
+        f"exceeds threshold"
+    )
+    # Send to monitoring system
+    metrics.gauge("comparator.overhead_pct", report.comparator_time_pct)
+
+    # Optionally dump detailed report
+    report.to_json(f"/var/log/comparator_alert_{time.time()}.json")
+
+# Alert when comparator exceeds 30% of execution time
+with ComparatorProfiler(
+    threshold_pct=30.0,
+    on_threshold=handle_threshold_exceeded
+) as profiler:
+    run_production_workload()
+```
+
+**Alert modes:**
+
+```python
+# One-time alert (default)
+ComparatorProfiler(
+    threshold_pct=30.0,
+    on_threshold=alert_callback
+)
+
+# Continuous monitoring with repeated alerts
+ComparatorProfiler(
+    threshold_pct=30.0,
+    on_threshold=alert_callback,
+    threshold_cooldown=60.0,  # Re-alert after 60 seconds
+)
+
+# Alert on specific conditions
+def smart_alert(report):
+    if report.comparator_time_pct > 50:
+        send_critical_alert(report)
+    elif report.p99_comparison_ns > 100_000:  # >100μs
+        send_latency_alert(report)
+
+ComparatorProfiler(
+    threshold_pct=20.0,  # Check starts at 20%
+    on_threshold=smart_alert
+)
+```
+
+**Integration with monitoring systems:**
+
+```python
+# Prometheus/Grafana
+from prometheus_client import Gauge, Histogram
+
+comparator_overhead = Gauge('comparator_overhead_percent', 'Comparator time %')
+comparator_latency = Histogram('comparator_latency_ns', 'Comparison latency')
+
+def export_to_prometheus(report):
+    comparator_overhead.set(report.comparator_time_pct)
+    for trace in report.traces:
+        comparator_latency.observe(trace.duration_ns)
+
+# Datadog
+from datadog import statsd
+
+def export_to_datadog(report):
+    statsd.gauge('comparator.overhead_pct', report.comparator_time_pct)
+    statsd.gauge('comparator.p99_ns', report.p99_comparison_ns)
+    statsd.increment('comparator.total_count', report.comparison_count)
 ```
 
 ### Decision Checklist
