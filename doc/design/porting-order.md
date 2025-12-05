@@ -7,6 +7,7 @@ This document defines the authoritative module list and implementation order for
 **Target Runtime:** Python 3.13+ (free-threaded and GIL-enabled)
 **Implementation Language:** Rust (stable, MSRV 1.75.0) via PyO3
 **Build System:** maturin
+**Rust Foundation:** ck-rust (`github.com/phdye/ck-rust`, branch `phdye`)
 
 ---
 
@@ -25,27 +26,68 @@ This document defines the authoritative module list and implementation order for
 
 ---
 
+## ck-rust Module Mappings
+
+The Rust implementation builds on **ck-rust**, a Rust port of ConcurrencyKit. This eliminates the need to reimplement low-level primitives:
+
+| ck-rust Module | Our Module | Tier | Usage |
+|----------------|------------|------|-------|
+| `ck::pr` | `atomics` | 0 | Atomic primitives, memory barriers, fences |
+| `ck::backoff` | `backoff` | 0 | Exponential backoff, spin hints |
+| `ck::cc` | `arch_detect` | 0 | Compiler hints, branch prediction, CPU features |
+| `ck::spinlock` | `config` | 0 | Spinlock variants (TAS, CAS, Ticket, MCS, CLH) |
+| `ck::epoch` | `smr_epoch` | 2 | Epoch-based safe memory reclamation |
+| `ck::hp` | `smr_hp` | 2 | Hazard pointers (alternative SMR) |
+| `ck::stack` | `treiber` | 3 | Lock-free Treiber stack |
+| `ck::queue` | `scq`, `lcrq` | 3 | Michael-Scott queue, LCRQ |
+| `ck::ring` | (internal) | 3 | Ring buffer for queue segments |
+| `ck::hs` | (future) | 4 | Concurrent hash set |
+| `ck::ht` | (future) | 4 | Concurrent hash table |
+
+### Dependency Configuration
+
+```toml
+# Cargo.toml
+[dependencies]
+ck = { git = "https://github.com/phdye/ck-rust", branch = "phdye" }
+pyo3 = { version = "0.20", features = ["extension-module"] }
+```
+
+### What We Build vs. What ck-rust Provides
+
+| Category | ck-rust Provides | We Build |
+|----------|------------------|----------|
+| Atomics | `ck::pr` primitives | PyO3 wrappers, Python API |
+| SMR | `ck::epoch`, `ck::hp` | Integration with our containers |
+| Stack | `ck::stack` | `LockFreeStack` Python wrapper |
+| Queue | `ck::queue`, `ck::ring` | `LockFreeQueue`, `FastQueue` Python wrappers |
+| Skip List | — | Full implementation (Fraser algorithm) |
+| BST | — | Full implementation (Natarajan-Mittal) |
+| Public API | — | All `SkipListMap`, `TreeMap`, etc. |
+
+---
+
 ## Tier 0: Platform & Utilities
 
-**Dependencies:** None (platform/compiler provides primitives)
+**Dependencies:** ck-rust (`ck::pr`, `ck::cc`, `ck::backoff`, `ck::spinlock`)
 
-| Module | Description | Complexity | Status |
-|--------|-------------|------------|--------|
-| `arch_detect` | CPU detection via `cfg(target_arch)`, runtime feature detection | Low | ⬜ |
-| `atomics` | Atomic ops via `std::sync::atomic`, memory orderings | Medium | ⬜ |
-| `backoff` | Exponential backoff, `std::hint::spin_loop`, yield | Low | ⬜ |
-| `config` | Compile-time features, runtime config, allocator selection | Medium | ⬜ |
+| Module | Description | ck-rust | Complexity | Status |
+|--------|-------------|---------|------------|--------|
+| `arch_detect` | CPU detection, feature flags | `ck::cc` | Low | ⬜ |
+| `atomics` | Atomic ops, memory orderings | `ck::pr` | Medium | ⬜ |
+| `backoff` | Exponential backoff, spin hints | `ck::backoff` | Low | ⬜ |
+| `config` | Runtime config, spinlock selection | `ck::spinlock` | Medium | ⬜ |
 
 Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 
 ### Tier 0 Completion Criteria
 
-- [ ] `arch_detect` correctly identifies x86-64 vs aarch64 via `cfg(target_arch)`
-- [ ] `arch_detect` runtime detection for CMPXCHG16B (x86-64), LSE (aarch64) via `std::arch::is_x86_feature_detected!`
-- [ ] `atomics` provides `AtomicPtr`, `AtomicUsize` wrappers with ergonomic API
-- [ ] `atomics` compiles on all target platforms (Linux, macOS, Windows)
-- [ ] `backoff` provides tunable exponential backoff with `spin_loop` hint
-- [ ] `config` provides `Config` struct with builder pattern
+- [ ] `arch_detect` wraps `ck::cc` for CPU feature detection
+- [ ] `arch_detect` runtime detection for CMPXCHG16B (x86-64), LSE (aarch64)
+- [ ] `atomics` wraps `ck::pr` primitives with PyO3 bindings
+- [ ] `atomics` exposes `AtomicInt`, `AtomicPtr`, `AtomicU128` to Python
+- [ ] `backoff` wraps `ck::backoff` with Python API
+- [ ] `config` provides runtime configuration, spinlock selection from `ck::spinlock`
 - [ ] `config` reads environment variables via `std::env`
 - [ ] All modules have design.md, spec.md, tests.md
 - [ ] `cargo test` passes on all platforms
@@ -75,22 +117,24 @@ Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 
 ## Tier 2: Memory Management
 
-**Dependencies:** Tier 0 (atomics, config)
+**Dependencies:** Tier 0, ck-rust (`ck::epoch`, `ck::hp`)
 
-| Module | Description | Complexity | Status |
-|--------|-------------|------------|--------|
-| `allocator` | Custom allocator integration (mimalloc, jemalloc via GlobalAlloc) | Low | ⬜ |
-| `smr_epoch` | Epoch-based reclamation (crossbeam-epoch style) | High | ⬜ |
-| `smr_debra` | DEBRA+ with quiescent-state detection | High | ⬜ |
+| Module | Description | ck-rust | Complexity | Status |
+|--------|-------------|---------|------------|--------|
+| `allocator` | Custom allocator integration (mimalloc) | — | Low | ⬜ |
+| `smr_epoch` | Epoch-based reclamation | `ck::epoch` | High | ⬜ |
+| `smr_debra` | DEBRA+ with quiescent-state detection | — | High | ⬜ |
+| `smr_hp` | Hazard pointers (alternative) | `ck::hp` | High | ⬜ |
 
 ### Tier 2 Completion Criteria
 
 - [ ] `allocator` integrates mimalloc via Rust's GlobalAlloc trait
 - [ ] Cross-thread frees work correctly
-- [ ] `smr_epoch` tracks epochs per thread (crossbeam-epoch style)
+- [ ] `smr_epoch` wraps `ck::epoch` with PyO3 bindings
 - [ ] `smr_epoch` retires nodes to deferred list
 - [ ] `smr_epoch` reclaims when safe (no thread in old epoch)
 - [ ] `smr_epoch` handles stalled threads
+- [ ] `smr_hp` wraps `ck::hp` for hazard pointer alternative
 - [ ] `smr_debra` implements quiescent state detection
 - [ ] Memory bounded under sustained load (no unbounded growth)
 - [ ] MIRI clean under stress test
@@ -119,18 +163,18 @@ BoundedMemory ==
 
 ## Tier 3: Core Algorithms
 
-**Dependencies:** Tier 0-2
+**Dependencies:** Tier 0-2, ck-rust (`ck::stack`, `ck::queue`, `ck::ring`)
 
-| Module | Description | Complexity | Status |
-|--------|-------------|------------|--------|
-| `skiplist_lockfree` | Fraser lock-free skip list, CAS-based insert/delete | High | ⬜ |
-| `skiplist_locked` | Fine-grained locked skip list (RwLock-based) | Medium | ⬜ |
-| `bst_lockfree` | Natarajan-Mittal external BST | High | ⬜ |
-| `bst_locked` | Fine-grained locked BST (RwLock-based) | Medium | ⬜ |
-| `scq` | Scalable Circular Queue (portable, single-width CAS) | High | ⬜ |
-| `lcrq` | Linked Concurrent Ring Queue (x86-64, double-width CAS) | High | ⬜ |
-| `wcq` | Wait-free Circular Queue | High | ⬜ |
-| `treiber` | Treiber stack with elimination backoff | Medium | ⬜ |
+| Module | Description | ck-rust | Complexity | Status |
+|--------|-------------|---------|------------|--------|
+| `skiplist_lockfree` | Fraser lock-free skip list | — | High | ⬜ |
+| `skiplist_locked` | Fine-grained locked skip list | — | Medium | ⬜ |
+| `bst_lockfree` | Natarajan-Mittal external BST | — | High | ⬜ |
+| `bst_locked` | Fine-grained locked BST | — | Medium | ⬜ |
+| `scq` | Scalable Circular Queue | `ck::queue` | High | ⬜ |
+| `lcrq` | Linked Concurrent Ring Queue | `ck::queue` | High | ⬜ |
+| `wcq` | Wait-free Circular Queue | — | High | ⬜ |
+| `treiber` | Treiber stack with elimination | `ck::stack` | Medium | ⬜ |
 
 ### Tier 3 Completion Criteria
 
@@ -151,17 +195,17 @@ BoundedMemory ==
 - [ ] TLA+ spec proves linearizability
 
 #### Queues
-- [ ] `scq` implements Nikolaev-Ravindran algorithm in Rust
+- [ ] `scq` wraps `ck::queue` Michael-Scott implementation
 - [ ] Works with single-width CAS (portable)
-- [ ] `lcrq` implements Morrison-Afek algorithm
+- [ ] `lcrq` wraps `ck::queue` LCRQ variant
 - [ ] Uses `AtomicU128` / CMPXCHG16B (x86-64 only, via `cfg(target_arch)`)
-- [ ] `wcq` provides wait-free guarantee
+- [ ] `wcq` provides wait-free guarantee (custom implementation)
 - [ ] All queues maintain FIFO order
 - [ ] Bounded and unbounded modes supported
 - [ ] TLA+ specs prove FIFO and progress
 
 #### Stack
-- [ ] `treiber` implements classic Treiber stack in Rust
+- [ ] `treiber` wraps `ck::stack` Treiber implementation
 - [ ] Elimination backoff for high contention
 - [ ] Elimination array with timeout
 - [ ] TLA+ spec proves LIFO and lock-freedom
@@ -346,3 +390,4 @@ Each module directory must contain:
 |------|--------|---------|
 | 2024-12-04 | Initial | Initial module order based on Design.v3.md |
 | 2025-12-05 | Update | Updated for Rust implementation via PyO3 |
+| 2025-12-05 | Update | Added ck-rust as Rust foundation, module mappings |

@@ -70,8 +70,33 @@ Legend: ✅ In scope, ⏸️ Deferred, ❌ Excluded
 | Brown (2015) | DEBRA+ algorithm |
 | Java ConcurrentSkipListMap | API design reference |
 | PyO3 User Guide | Rust-Python bindings |
-| crossbeam-epoch | Rust epoch-based reclamation |
+| **ck-rust** (github.com/phdye/ck-rust) | Rust foundation — ConcurrencyKit port |
 | CPython 3.13 source | Free-threaded Python internals |
+
+### Rust Implementation Foundation: ck-rust
+
+The Rust implementation is built on **ck-rust** (`github.com/phdye/ck-rust`, branch `phdye`), a Rust port of the ConcurrencyKit library. This provides battle-tested lock-free primitives:
+
+| ck-rust Module | Maps To | Description |
+|----------------|---------|-------------|
+| `ck::pr` | Tier 0: atomics | Atomic primitives, memory barriers |
+| `ck::backoff` | Tier 0: backoff | Exponential backoff strategies |
+| `ck::cc` | Tier 0: arch_detect | Compiler hints, branch prediction |
+| `ck::spinlock` | Tier 0: config | TAS, CAS, Ticket, MCS, CLH spinlocks |
+| `ck::epoch` | Tier 2: smr_epoch | Epoch-based memory reclamation |
+| `ck::hp` | Tier 2: (alt) | Hazard pointers (alternative SMR) |
+| `ck::stack` | Tier 3: treiber | Lock-free Treiber stack |
+| `ck::queue` | Tier 3: scq, lcrq | Michael-Scott queue, LCRQ variants |
+| `ck::ring` | Tier 3: (internal) | Ring buffer implementations |
+| `ck::hs` / `ck::ht` | Tier 4: (future) | Concurrent hash set/table |
+
+**Dependency Configuration** (Cargo.toml):
+```toml
+[dependencies]
+ck = { git = "https://github.com/phdye/ck-rust", branch = "phdye" }
+```
+
+**Note:** The Python prototype (`_atomics.py`, `_backoff.py`, etc.) serves as API design validation. The production Rust implementation wraps ck-rust primitives via PyO3.
 
 ### Related Documents
 
@@ -463,5 +488,6 @@ The implementation must provide these guarantees:
 
 | Date | Changes |
 |------|---------|
+| 2025-12-05 | Added ck-rust as Rust implementation foundation, module mappings |
 | 2024-12-05 | Added implementation status tracking, milestones, file structure |
 | 2024-12-04 | Initial design capture document |
