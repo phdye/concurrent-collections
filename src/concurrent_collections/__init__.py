@@ -29,6 +29,7 @@ from concurrent_collections._atomics import (
     AtomicInt,
     AtomicPtr,
     AtomicFlag,
+    AtomicU128,
     MemoryOrder,
     atomic_thread_fence,
 )
@@ -137,6 +138,7 @@ __all__ = [
     "AtomicInt",
     "AtomicPtr",
     "AtomicFlag",
+    "AtomicU128",
     "MemoryOrder",
     "atomic_thread_fence",
     # Tier 1: comparator

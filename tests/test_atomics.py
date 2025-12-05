@@ -7,6 +7,7 @@ from concurrent_collections import (
     AtomicInt,
     AtomicPtr,
     AtomicFlag,
+    AtomicU128,
     MemoryOrder,
     atomic_thread_fence,
 )
@@ -127,6 +128,35 @@ class TestAtomicInt:
             MemoryOrder.ACQUIRE
         )
         a.fetch_add(1, MemoryOrder.RELAXED)
+
+    def test_fetch_xor(self):
+        """fetch_xor returns old value and XORs."""
+        a = AtomicInt(0b1010)
+        old = a.fetch_xor(0b0110)
+        assert old == 0b1010
+        assert a.load() == 0b1100  # 1010 XOR 0110 = 1100
+
+    def test_fetch_max(self):
+        """fetch_max returns old value and computes max."""
+        a = AtomicInt(10)
+        old = a.fetch_max(5)
+        assert old == 10
+        assert a.load() == 10  # max(10, 5) = 10
+
+        old = a.fetch_max(20)
+        assert old == 10
+        assert a.load() == 20  # max(10, 20) = 20
+
+    def test_fetch_min(self):
+        """fetch_min returns old value and computes min."""
+        a = AtomicInt(10)
+        old = a.fetch_min(15)
+        assert old == 10
+        assert a.load() == 10  # min(10, 15) = 10
+
+        old = a.fetch_min(5)
+        assert old == 10
+        assert a.load() == 5  # min(10, 5) = 5
 
 
 class TestAtomicIntThreadSafety:
@@ -313,3 +343,152 @@ class TestAtomicThreadFence:
         """atomic_thread_fence accepts all memory orders."""
         for order in MemoryOrder:
             atomic_thread_fence(order)
+
+
+class TestAtomicU128:
+    """Tests for AtomicU128 class (128-bit atomic operations)."""
+
+    def test_init_default(self):
+        """AtomicU128 initializes to (0, 0) by default."""
+        a = AtomicU128()
+        high, low = a.load()
+        assert high == 0
+        assert low == 0
+
+    def test_init_with_values(self):
+        """AtomicU128 initializes to specified high/low values."""
+        a = AtomicU128(high=0x123456789ABCDEF0, low=0xFEDCBA9876543210)
+        high, low = a.load()
+        assert high == 0x123456789ABCDEF0
+        assert low == 0xFEDCBA9876543210
+
+    def test_from_int(self):
+        """AtomicU128.from_int creates from Python integer."""
+        # Create a 128-bit value
+        value = (0x123456789ABCDEF0 << 64) | 0xFEDCBA9876543210
+        a = AtomicU128.from_int(value)
+        assert a.load_int() == value
+
+    def test_load_store(self):
+        """load() and store() work correctly."""
+        a = AtomicU128(high=1, low=2)
+        high, low = a.load()
+        assert high == 1
+        assert low == 2
+
+        a.store(high=3, low=4)
+        high, low = a.load()
+        assert high == 3
+        assert low == 4
+
+    def test_load_store_int(self):
+        """load_int() and store_int() work correctly."""
+        value = (0xABCD << 64) | 0x1234
+        a = AtomicU128()
+        a.store_int(value)
+        assert a.load_int() == value
+
+    def test_compare_exchange_success(self):
+        """compare_exchange succeeds when expected matches."""
+        a = AtomicU128(high=1, low=2)
+        success, actual_high, actual_low = a.compare_exchange(
+            expected_high=1, expected_low=2,
+            desired_high=3, desired_low=4
+        )
+        assert success is True
+        assert actual_high == 1
+        assert actual_low == 2
+        assert a.load() == (3, 4)
+
+    def test_compare_exchange_failure(self):
+        """compare_exchange fails when expected doesn't match."""
+        a = AtomicU128(high=1, low=2)
+        success, actual_high, actual_low = a.compare_exchange(
+            expected_high=5, expected_low=6,
+            desired_high=3, desired_low=4
+        )
+        assert success is False
+        assert actual_high == 1
+        assert actual_low == 2
+        assert a.load() == (1, 2)  # Unchanged
+
+    def test_compare_exchange_int(self):
+        """compare_exchange_int works with Python integers."""
+        original = (0x100 << 64) | 0x200
+        new_value = (0x300 << 64) | 0x400
+        a = AtomicU128.from_int(original)
+
+        success, actual = a.compare_exchange_int(original, new_value)
+        assert success is True
+        assert actual == original
+        assert a.load_int() == new_value
+
+    def test_compare_exchange_int_failure(self):
+        """compare_exchange_int fails when expected doesn't match."""
+        original = (0x100 << 64) | 0x200
+        wrong = (0x999 << 64) | 0x888
+        new_value = (0x300 << 64) | 0x400
+        a = AtomicU128.from_int(original)
+
+        success, actual = a.compare_exchange_int(wrong, new_value)
+        assert success is False
+        assert actual == original
+        assert a.load_int() == original  # Unchanged
+
+    def test_properties(self):
+        """high, low, and value properties work correctly."""
+        a = AtomicU128(high=0xAAAA, low=0xBBBB)
+        assert a.high == 0xAAAA
+        assert a.low == 0xBBBB
+        assert a.value == (0xAAAA << 64) | 0xBBBB
+
+    def test_64bit_boundaries(self):
+        """Values at 64-bit boundaries work correctly."""
+        max_64 = 0xFFFFFFFFFFFFFFFF
+        a = AtomicU128(high=max_64, low=max_64)
+        high, low = a.load()
+        assert high == max_64
+        assert low == max_64
+
+    def test_value_masking(self):
+        """Values are properly masked to 64 bits."""
+        # Try to store a value larger than 64 bits
+        too_large = 0x1_FFFFFFFFFFFFFFFF  # 65 bits
+        a = AtomicU128(high=too_large, low=too_large)
+        high, low = a.load()
+        assert high == 0xFFFFFFFFFFFFFFFF  # Masked to 64 bits
+        assert low == 0xFFFFFFFFFFFFFFFF
+
+
+class TestAtomicU128ThreadSafety:
+    """Thread safety tests for AtomicU128."""
+
+    def test_concurrent_compare_exchange(self):
+        """compare_exchange is thread-safe with concurrent access."""
+        a = AtomicU128(high=0, low=0)
+        success_count = AtomicInt(0)
+        num_threads = 8
+        attempts_per_thread = 100
+
+        def try_cas():
+            for _ in range(attempts_per_thread):
+                while True:
+                    high, low = a.load()
+                    new_low = low + 1
+                    new_high = high + (1 if new_low == 0 else 0)
+                    success, _, _ = a.compare_exchange(
+                        high, low, new_high, new_low
+                    )
+                    if success:
+                        success_count.fetch_add(1)
+                        break
+
+        threads = [threading.Thread(target=try_cas) for _ in range(num_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert success_count.load() == num_threads * attempts_per_thread
+        # Final value should equal total increments
+        assert a.low == num_threads * attempts_per_thread

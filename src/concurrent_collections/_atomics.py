@@ -185,6 +185,51 @@ class AtomicInt:
             self._value = old & value
             return old
 
+    def fetch_xor(self, value: int, order: MemoryOrder = MemoryOrder.SEQ_CST) -> int:
+        """Atomically XOR and return previous value.
+
+        Args:
+            value: Value to XOR
+            order: Memory ordering (default SEQ_CST)
+
+        Returns:
+            Value before XOR
+        """
+        with self._lock:
+            old = self._value
+            self._value = old ^ value
+            return old
+
+    def fetch_max(self, value: int, order: MemoryOrder = MemoryOrder.SEQ_CST) -> int:
+        """Atomically compute max and return previous value.
+
+        Args:
+            value: Value to compare
+            order: Memory ordering (default SEQ_CST)
+
+        Returns:
+            Value before max operation
+        """
+        with self._lock:
+            old = self._value
+            self._value = max(old, value)
+            return old
+
+    def fetch_min(self, value: int, order: MemoryOrder = MemoryOrder.SEQ_CST) -> int:
+        """Atomically compute min and return previous value.
+
+        Args:
+            value: Value to compare
+            order: Memory ordering (default SEQ_CST)
+
+        Returns:
+            Value before min operation
+        """
+        with self._lock:
+            old = self._value
+            self._value = min(old, value)
+            return old
+
     @property
     def value(self) -> int:
         """Get current value (convenience property)."""
@@ -295,6 +340,178 @@ class AtomicPtr(Generic[T]):
     def value(self) -> Optional[T]:
         """Get current reference (convenience property)."""
         return self.load()
+
+
+class AtomicU128:
+    """Atomic 128-bit integer operations.
+
+    Provides atomic operations on 128-bit integers, essential for
+    double-width CAS operations used in LCRQ and other lock-free
+    data structures.
+
+    Note: In the Python prototype, this uses a lock for atomicity.
+    The Rust implementation will use CMPXCHG16B on x86-64.
+    """
+
+    __slots__ = ('_high', '_low', '_lock')
+
+    def __init__(self, high: int = 0, low: int = 0) -> None:
+        """Initialize atomic 128-bit value.
+
+        Args:
+            high: High 64 bits
+            low: Low 64 bits
+        """
+        self._high = high & 0xFFFFFFFFFFFFFFFF
+        self._low = low & 0xFFFFFFFFFFFFFFFF
+        self._lock = threading.Lock()
+
+    @classmethod
+    def from_int(cls, value: int) -> 'AtomicU128':
+        """Create from a Python integer.
+
+        Args:
+            value: Integer value (can be > 64 bits)
+
+        Returns:
+            AtomicU128 instance
+        """
+        low = value & 0xFFFFFFFFFFFFFFFF
+        high = (value >> 64) & 0xFFFFFFFFFFFFFFFF
+        return cls(high, low)
+
+    def load(self, order: MemoryOrder = MemoryOrder.SEQ_CST) -> tuple[int, int]:
+        """Atomically load the current value.
+
+        Args:
+            order: Memory ordering (default SEQ_CST)
+
+        Returns:
+            Tuple of (high, low) 64-bit values
+        """
+        with self._lock:
+            return (self._high, self._low)
+
+    def load_int(self, order: MemoryOrder = MemoryOrder.SEQ_CST) -> int:
+        """Atomically load as a single Python integer.
+
+        Args:
+            order: Memory ordering (default SEQ_CST)
+
+        Returns:
+            128-bit value as Python int
+        """
+        with self._lock:
+            return (self._high << 64) | self._low
+
+    def store(
+        self,
+        high: int,
+        low: int,
+        order: MemoryOrder = MemoryOrder.SEQ_CST
+    ) -> None:
+        """Atomically store a new value.
+
+        Args:
+            high: High 64 bits
+            low: Low 64 bits
+            order: Memory ordering (default SEQ_CST)
+        """
+        with self._lock:
+            self._high = high & 0xFFFFFFFFFFFFFFFF
+            self._low = low & 0xFFFFFFFFFFFFFFFF
+
+    def store_int(self, value: int, order: MemoryOrder = MemoryOrder.SEQ_CST) -> None:
+        """Atomically store from a Python integer.
+
+        Args:
+            value: 128-bit value as Python int
+            order: Memory ordering (default SEQ_CST)
+        """
+        with self._lock:
+            self._low = value & 0xFFFFFFFFFFFFFFFF
+            self._high = (value >> 64) & 0xFFFFFFFFFFFFFFFF
+
+    def compare_exchange(
+        self,
+        expected_high: int,
+        expected_low: int,
+        desired_high: int,
+        desired_low: int,
+        success_order: MemoryOrder = MemoryOrder.SEQ_CST,
+        failure_order: MemoryOrder = MemoryOrder.SEQ_CST,
+    ) -> tuple[bool, int, int]:
+        """Atomically compare and exchange (double-width CAS).
+
+        This is the key operation for LCRQ and other algorithms
+        requiring 128-bit atomic updates.
+
+        Args:
+            expected_high: Expected high 64 bits
+            expected_low: Expected low 64 bits
+            desired_high: Desired high 64 bits
+            desired_low: Desired low 64 bits
+            success_order: Memory ordering on success
+            failure_order: Memory ordering on failure
+
+        Returns:
+            Tuple of (success: bool, actual_high: int, actual_low: int)
+        """
+        with self._lock:
+            actual_high = self._high
+            actual_low = self._low
+            if actual_high == expected_high and actual_low == expected_low:
+                self._high = desired_high & 0xFFFFFFFFFFFFFFFF
+                self._low = desired_low & 0xFFFFFFFFFFFFFFFF
+                return (True, actual_high, actual_low)
+            return (False, actual_high, actual_low)
+
+    def compare_exchange_int(
+        self,
+        expected: int,
+        desired: int,
+        success_order: MemoryOrder = MemoryOrder.SEQ_CST,
+        failure_order: MemoryOrder = MemoryOrder.SEQ_CST,
+    ) -> tuple[bool, int]:
+        """Atomically compare and exchange using Python integers.
+
+        Args:
+            expected: Expected 128-bit value
+            desired: Desired 128-bit value
+            success_order: Memory ordering on success
+            failure_order: Memory ordering on failure
+
+        Returns:
+            Tuple of (success: bool, actual_value: int)
+        """
+        expected_high = (expected >> 64) & 0xFFFFFFFFFFFFFFFF
+        expected_low = expected & 0xFFFFFFFFFFFFFFFF
+        desired_high = (desired >> 64) & 0xFFFFFFFFFFFFFFFF
+        desired_low = desired & 0xFFFFFFFFFFFFFFFF
+
+        success, actual_high, actual_low = self.compare_exchange(
+            expected_high, expected_low,
+            desired_high, desired_low,
+            success_order, failure_order
+        )
+        return (success, (actual_high << 64) | actual_low)
+
+    @property
+    def high(self) -> int:
+        """Get high 64 bits."""
+        with self._lock:
+            return self._high
+
+    @property
+    def low(self) -> int:
+        """Get low 64 bits."""
+        with self._lock:
+            return self._low
+
+    @property
+    def value(self) -> int:
+        """Get current value as Python int."""
+        return self.load_int()
 
 
 class AtomicFlag:
