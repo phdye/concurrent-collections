@@ -93,8 +93,10 @@ The Rust implementation is built on **ck-rust** (`github.com/phdye/ck-rust`, bra
 **Dependency Configuration** (Cargo.toml):
 ```toml
 [dependencies]
-ck = { git = "https://github.com/phdye/ck-rust", branch = "phdye" }
+ck = "0.1"  # Published to crates.io
 ```
+
+*Development:* Use git dependency until published: `ck = { git = "https://github.com/phdye/ck-rust", branch = "phdye" }`
 
 **Note:** The Python prototype (`_atomics.py`, `_backoff.py`, etc.) serves as API design validation. The production Rust implementation wraps ck-rust primitives via PyO3.
 

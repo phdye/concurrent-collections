@@ -47,10 +47,13 @@ The Rust implementation builds on **ck-rust**, a Rust port of ConcurrencyKit. Th
 ### Dependency Configuration
 
 ```toml
-# Cargo.toml
+# Cargo.toml (production - after ck-rust published to crates.io)
 [dependencies]
-ck = { git = "https://github.com/phdye/ck-rust", branch = "phdye" }
+ck = "0.1"
 pyo3 = { version = "0.20", features = ["extension-module"] }
+
+# Development (before crates.io publication)
+# ck = { git = "https://github.com/phdye/ck-rust", branch = "phdye" }
 ```
 
 ### What We Build vs. What ck-rust Provides
