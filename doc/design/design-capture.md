@@ -23,6 +23,8 @@ This documentation set enables:
 | Authoritative Tier List | `doc/design/porting-order.md` |
 | Templates Directory | `doc/design/_templates/` |
 | High-Level Design | `doc/Design.v3.md` |
+| Implementation Root | `src/concurrent_collections/` |
+| Tests Root | `tests/` |
 
 ### Scope
 
@@ -73,11 +75,63 @@ Legend: ✅ In scope, ⏸️ Deferred, ❌ Excluded
 |----------|---------|
 | `doc/Design.v3.md` | High-level design document |
 | `doc/Design.v2.md` | Previous design iteration |
+| `doc/implementation/progress.md` | Implementation progress tracking |
+| `doc/report/tier-*.md` | Tier validation reports |
 | `ref/complete-design.md` | Documentation methodology |
 
 ### Dependent Projects
 
 None currently. Future consideration for stdlib inclusion as `concurrent.collections`.
+
+---
+
+## Implementation Status
+
+### Tier Completion Summary
+
+| Tier | Category | Status | Modules | Tests |
+|------|----------|--------|---------|-------|
+| 0 | Platform & Utilities | ✅ Complete | 4/4 | 75+ |
+| 1 | Comparator System | ✅ Complete | 1/1 | 20+ |
+| 2 | Memory Management | ✅ Complete | 3/3 | 25+ |
+| 3 | Core Algorithms | ✅ Partial | 3/8 | 48+ |
+| 4 | Public API | ✅ Partial | 6/10 | 105+ |
+| 5 | Extensions | ⬜ Not started | 0/1 | — |
+
+Legend: ✅ Complete, 🔶 In progress, ⬜ Not started
+
+### Implementation Files
+
+| Tier | Module | File | Status |
+|------|--------|------|--------|
+| 0 | arch_detect | `_arch_detect.py` | ✅ |
+| 0 | atomics | `_atomics.py` | ✅ |
+| 0 | backoff | `_backoff.py` | ✅ |
+| 0 | config | `_config.py` | ✅ |
+| 1 | comparator | `_comparator.py` | ✅ |
+| 1 | profiler | `_profiler.py` | ✅ |
+| 2 | mimalloc_glue | `_mimalloc_glue.py` | ✅ |
+| 2 | smr_ibr | `_smr_ibr.py` | ✅ |
+| 2 | smr_debra | `_smr_debra.py` | ✅ |
+| 3 | skiplist_locked | `_skiplist.py` | ✅ |
+| 3 | treiber | `_treiber.py` | ✅ |
+| 3 | scq | `_scq.py` | ✅ |
+| 3 | skiplist_lockfree | — | ⬜ |
+| 3 | bst_lockfree | — | ⬜ |
+| 3 | bst_locked | — | ⬜ |
+| 3 | lcrq | — | ⬜ |
+| 3 | wcq | — | ⬜ |
+| 4 | SkipListMap | `_skiplistmap.py` | ✅ |
+| 4 | SkipListSet | `_skiplistset.py` | ✅ |
+| 4 | FrozenSkipListMap | `_skiplistmap.py` | ✅ |
+| 4 | FrozenSkipListSet | `_skiplistset.py` | ✅ |
+| 4 | LockFreeQueue | `_lockfree_queue.py` | ✅ |
+| 4 | LockFreeStack | `_lockfree_stack.py` | ✅ |
+| 4 | TreeMap | — | ⬜ |
+| 4 | TreeSet | — | ⬜ |
+| 4 | FastQueue | — | ⬜ |
+| 4 | WaitFreeQueue | — | ⬜ |
+| 5 | BoundedSkipListMap | — | ⬜ |
 
 ---
 
@@ -96,21 +150,22 @@ None currently. Future consideration for stdlib inclusion as `concurrent.collect
 
 ```
 Tier 0: Platform & Utilities     ← arch_detect, atomics, backoff, config
-           │
+           │                       [COMPLETE ✅]
            ▼
 Tier 1: Comparator System        ← comparator (natural, C func, Python callable)
-           │
+           │                       [COMPLETE ✅]
            ▼
 Tier 2: Memory Management        ← mimalloc_glue, smr_ibr, smr_debra
-           │
+           │                       [COMPLETE ✅]
            ▼
 Tier 3: Core Algorithms          ← skiplist, bst, scq, lcrq, wcq, treiber
-           │
+           │                       [PARTIAL - Core complete]
            ▼
 Tier 4: Public API               ← SkipListMap, TreeMap, Queues, Stack, Frozen*
-           │
+           │                       [PARTIAL - Core complete]
            ▼
 Tier 5: Extensions               ← BoundedSkipListMap, future recipes
+                                   [NOT STARTED]
 ```
 
 ---
@@ -119,60 +174,73 @@ Tier 5: Extensions               ← BoundedSkipListMap, future recipes
 
 ### Tier 0: Platform & Utilities
 
-| Module | Description | Complexity |
-|--------|-------------|------------|
-| `arch_detect` | CPU architecture detection, feature flags (CMPXCHG16B, LSE) | Low |
-| `atomics` | Atomic operations abstraction, memory barriers | Medium |
-| `backoff` | Exponential backoff, pause/yield instructions | Low |
-| `config` | Runtime configuration, GIL detection, backend selection | Medium |
+| Module | Description | Complexity | Status |
+|--------|-------------|------------|--------|
+| `arch_detect` | CPU architecture detection, feature flags (CMPXCHG16B, LSE) | Low | ✅ |
+| `atomics` | Atomic operations abstraction, memory barriers | Medium | ✅ |
+| `backoff` | Exponential backoff, pause/yield instructions | Low | ✅ |
+| `config` | Runtime configuration, GIL detection, backend selection | Medium | ✅ |
 
 ### Tier 1: Comparator System
 
-| Module | Description | Complexity |
-|--------|-------------|------------|
-| `comparator` | Comparison dispatch, C function registration, key extraction | Medium |
+| Module | Description | Complexity | Status |
+|--------|-------------|------------|--------|
+| `comparator` | Comparison dispatch, C function registration, key extraction | Medium | ✅ |
+| `profiler` | Comparator performance profiling, optimization hints | Low | ✅ |
 
 ### Tier 2: Memory Management
 
-| Module | Description | Complexity |
-|--------|-------------|------------|
-| `mimalloc_glue` | mimalloc allocator integration, cross-thread free | Low |
-| `smr_ibr` | Interval-Based Reclamation implementation | High |
-| `smr_debra` | DEBRA+ implementation with signal-based neutralization | High |
+| Module | Description | Complexity | Status |
+|--------|-------------|------------|--------|
+| `mimalloc_glue` | mimalloc allocator integration, cross-thread free | Low | ✅ |
+| `smr_ibr` | Interval-Based Reclamation implementation | High | ✅ |
+| `smr_debra` | DEBRA+ implementation with signal-based neutralization | High | ✅ |
 
 ### Tier 3: Core Algorithms
 
-| Module | Description | Complexity |
-|--------|-------------|------------|
-| `skiplist_lockfree` | Fraser lock-free skip list (CAS-based) | High |
-| `skiplist_locked` | Fine-grained locked skip list (GIL backend) | Medium |
-| `bst_lockfree` | Natarajan-Mittal external BST | High |
-| `bst_locked` | Fine-grained locked BST (GIL backend) | Medium |
-| `scq` | Scalable Circular Queue (portable) | High |
-| `lcrq` | Linked Concurrent Ring Queue (x86-64 only) | High |
-| `wcq` | Wait-free Circular Queue | High |
-| `treiber` | Treiber stack with elimination backoff | Medium |
+| Module | Description | Complexity | Status |
+|--------|-------------|------------|--------|
+| `skiplist_lockfree` | Fraser lock-free skip list (CAS-based) | High | ⬜ |
+| `skiplist_locked` | Fine-grained locked skip list (GIL backend) | Medium | ✅ |
+| `bst_lockfree` | Natarajan-Mittal external BST | High | ⬜ |
+| `bst_locked` | Fine-grained locked BST (GIL backend) | Medium | ⬜ |
+| `scq` | Scalable Circular Queue (portable) | High | ✅ |
+| `lcrq` | Linked Concurrent Ring Queue (x86-64 only) | High | ⬜ |
+| `wcq` | Wait-free Circular Queue | High | ⬜ |
+| `treiber` | Treiber stack with elimination backoff | Medium | ✅ |
 
 ### Tier 4: Public API
 
-| Module | Description | Complexity |
-|--------|-------------|------------|
-| `SkipListMap` | Ordered map with dict-like API | Medium |
-| `SkipListSet` | Ordered set with set-like API | Medium |
-| `FrozenSkipListMap` | Immutable snapshot, hashable | Low |
-| `FrozenSkipListSet` | Immutable snapshot, hashable | Low |
-| `TreeMap` | BST-based ordered map | Medium |
-| `TreeSet` | BST-based ordered set | Medium |
-| `LockFreeQueue` | MPMC queue using SCQ | Low |
-| `FastQueue` | MPMC queue with LCRQ optimization | Low |
-| `WaitFreeQueue` | MPMC queue with wait-free guarantee | Low |
-| `LockFreeStack` | MPMC stack | Low |
+| Module | Description | Complexity | Status |
+|--------|-------------|------------|--------|
+| `SkipListMap` | Ordered map with dict-like API | Medium | ✅ |
+| `SkipListSet` | Ordered set with set-like API | Medium | ✅ |
+| `FrozenSkipListMap` | Immutable snapshot, hashable | Low | ✅ |
+| `FrozenSkipListSet` | Immutable snapshot, hashable | Low | ✅ |
+| `TreeMap` | BST-based ordered map | Medium | ⬜ |
+| `TreeSet` | BST-based ordered set | Medium | ⬜ |
+| `LockFreeQueue` | MPMC queue using SCQ | Low | ✅ |
+| `FastQueue` | MPMC queue with LCRQ optimization | Low | ⬜ |
+| `WaitFreeQueue` | MPMC queue with wait-free guarantee | Low | ⬜ |
+| `LockFreeStack` | MPMC stack | Low | ✅ |
 
 ### Tier 5: Extensions
 
-| Module | Description | Complexity |
-|--------|-------------|------------|
-| `BoundedSkipListMap` | Size-limited SkipListMap wrapper | Low |
+| Module | Description | Complexity | Status |
+|--------|-------------|------------|--------|
+| `BoundedSkipListMap` | Size-limited SkipListMap wrapper | Low | ⬜ |
+
+---
+
+## Milestones
+
+| Milestone | Tiers Required | Status | Capability Achieved |
+|-----------|----------------|--------|---------------------|
+| M1: Foundation | Tier 0 | ✅ Complete | Platform abstraction, config working |
+| M2: Memory Safe | Tier 0-2 | ✅ Complete | SMR operational, memory bounded |
+| M3: Core Containers | Tier 0-4 (core) | ✅ Complete | SkipListMap, Queue, Stack functional |
+| M4: Full Containers | Tier 0-4 (all) | 🔶 In progress | All public APIs available |
+| M5: Production | Tier 0-5 | ⬜ Not started | Extensions, full docs, benchmarks |
 
 ---
 
@@ -198,6 +266,7 @@ Tier 5: Extensions               ← BoundedSkipListMap, future recipes
 | GIL adaptation | Runtime detect, dual backend | Transparent to user | Single backend (suboptimal) |
 | Frozen type | FrozenSkipListMap (hashable) | Can be dict key | Return dict (loses ordering) |
 | SMR scheme | IBR primary, DEBRA+ configurable | Bounded memory, good perf | Hazard pointers (overhead) |
+| Python version | 3.11+ for development, 3.13+ target | Compatibility with free-threading | 3.13+ only |
 
 ---
 
@@ -221,65 +290,98 @@ Tier 5: Extensions               ← BoundedSkipListMap, future recipes
 
 ---
 
+## TLA+ Specification Guidance
+
+### Required For
+
+All Tier 2-3 modules require TLA+ specifications:
+
+| Module Category | Key Properties to Model |
+|-----------------|------------------------|
+| SMR (Tier 2) | Safe reclamation, eventual freeing, bounded memory |
+| Skip List (Tier 3) | Linearizability, ordering, lock-freedom |
+| Queue (Tier 3) | FIFO ordering, lock-freedom, bounded size |
+| Stack (Tier 3) | LIFO ordering, lock-freedom |
+
+### Key Invariants
+
+```tla
+\* Safe Memory Reclamation
+SafeReclamation ==
+    \A node \in retired:
+        Freed(node) => \A t \in Threads: ~Accessing(t, node)
+
+\* Skip list ordering preserved
+SkipListOrdered ==
+    \A node \in Nodes:
+        node.next[0] # NIL => node.key < node.next[0].key
+
+\* Queue FIFO
+QueueFIFO ==
+    \A i, j \in EnqueueIndices:
+        i < j => DequeueOrder(i) < DequeueOrder(j)
+
+\* Lock-free progress
+LockFreeProgress ==
+    []<>(\E t \in Threads: Completes(t))
+```
+
+---
+
 ## File Structure
 
 ```
-doc/design/
-  design-capture.md         # THIS DOCUMENT
-  porting-order.md          # Module list and tiers
-  
-  _templates/
-    design.md               # Module design template
-    spec.md                 # Module spec template
-    tests.md                # Module tests template
-    spec.tla                # TLA+ template
-    perf.md                 # Performance template
-    platform.md             # Platform template
-  
-  tier-0/
-    README.md
-    arch_detect/
-    atomics/
-    backoff/
-    config/
-  
-  tier-1/
-    README.md
-    comparator/
-  
-  tier-2/
-    README.md
-    mimalloc_glue/
-    smr_ibr/
-    smr_debra/
-  
-  tier-3/
-    README.md
-    skiplist_lockfree/
-    skiplist_locked/
-    bst_lockfree/
-    bst_locked/
-    scq/
-    lcrq/
-    wcq/
-    treiber/
-  
-  tier-4/
-    README.md
-    SkipListMap/
-    SkipListSet/
-    FrozenSkipListMap/
-    FrozenSkipListSet/
-    TreeMap/
-    TreeSet/
-    LockFreeQueue/
-    FastQueue/
-    WaitFreeQueue/
-    LockFreeStack/
-  
-  tier-5/
-    README.md
-    BoundedSkipListMap/
+concurrent-collections/
+  src/concurrent_collections/
+    __init__.py              # Public exports
+    _arch_detect.py          # Tier 0: CPU detection
+    _atomics.py              # Tier 0: Atomic operations
+    _backoff.py              # Tier 0: Backoff strategies
+    _config.py               # Tier 0: Configuration
+    _comparator.py           # Tier 1: Comparators
+    _profiler.py             # Tier 1: Profiling
+    _mimalloc_glue.py        # Tier 2: Allocator
+    _smr_ibr.py              # Tier 2: IBR
+    _smr_debra.py            # Tier 2: DEBRA+
+    _smr.py                  # Tier 2: SMR compatibility
+    _skiplist.py             # Tier 3: Skip list (locked)
+    _treiber.py              # Tier 3: Treiber stack
+    _scq.py                  # Tier 3: SCQ
+    _skiplistmap.py          # Tier 4: SkipListMap
+    _skiplistset.py          # Tier 4: SkipListSet
+    _lockfree_queue.py       # Tier 4: LockFreeQueue
+    _lockfree_stack.py       # Tier 4: LockFreeStack
+
+  tests/
+    test_arch_detect.py      # Tier 0 tests
+    test_atomics.py
+    test_backoff.py
+    test_config.py
+    test_comparator.py       # Tier 1 tests
+    test_profiler.py
+    test_mimalloc_glue.py    # Tier 2 tests
+    test_smr_ibr.py
+    test_smr_debra.py
+    test_treiber.py          # Tier 3 tests
+    test_queue.py
+    test_skiplistmap.py      # Tier 4 tests
+    test_skiplistset.py
+
+  doc/design/
+    design-capture.md        # THIS DOCUMENT
+    porting-order.md         # Module list and tiers
+    _templates/              # Document templates
+    tier-0/                  # Tier 0 design docs
+    tier-1/                  # Tier 1 design docs
+    tier-2/                  # Tier 2 design docs
+    tier-3/                  # Tier 3 design docs
+    tier-4/                  # Tier 4 design docs
+    tier-5/                  # Tier 5 design docs
+
+  doc/report/
+    tier-0.md                # Tier 0 validation report
+    tier-1.md                # Tier 1 validation report
+    tier-2.md                # Tier 2 validation report
 ```
 
 ---
@@ -308,6 +410,7 @@ The implementation must provide these guarantees:
 | Lock-free progress | System-wide progress guaranteed | All Tier 3-4 (lock-free backend) |
 | Wait-free progress | Per-thread progress bounded | WaitFreeQueue only |
 | FIFO ordering | Queue maintains insertion order | scq, lcrq, wcq |
+| LIFO ordering | Stack maintains LIFO order | treiber |
 | Sorted ordering | Map/Set maintain key order | skiplist, bst |
 | Memory safety | No use-after-free, no leaks | All |
 | Snapshot consistency | Frozen views are immutable | Frozen* classes |
@@ -330,6 +433,27 @@ The implementation must provide these guarantees:
 - [ ] All modules worked on have ALL MANDATORY files
 - [ ] TLA+ specifications parse and type-check
 - [ ] Open questions updated with current thinking
-- [ ] Tier completion status updated in porting-order.md
+- [ ] Tier completion status updated in this document
 - [ ] Next priority identified
 - [ ] Any blockers documented
+- [ ] Tests pass: `pytest tests/`
+- [ ] Imports work: `from concurrent_collections import *`
+
+---
+
+## Next Priorities
+
+1. **TreeMap/TreeSet** — BST-based containers (requires bst_locked implementation)
+2. **FastQueue** — LCRQ optimization for x86-64
+3. **WaitFreeQueue** — Wait-free queue implementation
+4. **BoundedSkipListMap** — Size-limited container extension
+5. **TLA+ specifications** — Formal verification of concurrency properties
+
+---
+
+## Revision History
+
+| Date | Changes |
+|------|---------|
+| 2024-12-05 | Added implementation status tracking, milestones, file structure |
+| 2024-12-04 | Initial design capture document |
