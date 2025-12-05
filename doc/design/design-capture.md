@@ -2,11 +2,10 @@
 
 ## Purpose
 
-This document provides the technical home base for the `concurrent_collections` project. The goal is to create production-ready, lock-free data structures for Python 3.13+ that scale on free-threaded Python while remaining competitive on GIL-enabled Python.
+This document provides the technical home base for the `concurrent_collections` project. The goal is to create production-ready, lock-free data structures for Python 3.13+ that scale on free-threaded Python while remaining competitive on GIL-enabled Python. The implementation uses Rust via PyO3 for performance and memory safety.
 
 This documentation set enables:
 - Implementation from the ground up
-- Future porting to other languages/runtimes
 - Formal verification of concurrency properties
 - Team collaboration and onboarding
 
@@ -18,6 +17,9 @@ This documentation set enables:
 |-------|-------|
 | Project Name | concurrent_collections |
 | Target Runtime | Python 3.13+ (free-threaded and GIL-enabled) |
+| Implementation Language | Rust (stable, 1.75+) via PyO3 |
+| Minimum Supported Rust Version (MSRV) | 1.75.0 |
+| Build System | maturin |
 | License | BSD-3-Clause (CPython compatible) |
 | Design Docs Root | `doc/design/` |
 | Authoritative Tier List | `doc/design/porting-order.md` |
@@ -28,14 +30,14 @@ This documentation set enables:
 
 | Category | Status | Notes |
 |----------|--------|-------|
-| Ordered Maps (SkipListMap, TreeMap) | ✅ | Lock-free, O(log n), range queries |
-| Ordered Sets (SkipListSet, TreeSet) | ✅ | Lock-free, O(log n), range iteration |
+| Ordered Maps (SkipListMap, TreeMap) | ✅ | Lock-free, O(log n), range queries, dict-like API |
+| Ordered Sets (SkipListSet, TreeSet) | ✅ | Lock-free, O(log n), range iteration, set-like API |
 | Frozen Variants | ✅ | Immutable snapshots, hashable |
 | MPMC Queues | ✅ | SCQ (portable), LCRQ (x86-64), wCQ (wait-free) |
 | MPMC Stack | ✅ | Treiber with elimination backoff |
-| Custom Comparators | ✅ | Natural, Python callable, C function |
+| Custom Comparators | ✅ | Natural ordering, Python callable, Rust function |
 | Dual Backend (lock-free/locked) | ✅ | Runtime GIL detection, adaptive selection |
-| SMR (memory reclamation) | ✅ | IBR primary, DEBRA+ alternative |
+| SMR (memory reclamation) | ✅ | Epoch-based (crossbeam-epoch style), DEBRA+ alternative |
 | Bounded Containers | ✅ | recipes.BoundedSkipListMap |
 | Distribution/RPC | ❌ | Out of scope—single process only |
 | Persistence | ❌ | Out of scope—in-memory only |
@@ -51,7 +53,7 @@ Legend: ✅ In scope, ⏸️ Deferred, ❌ Excluded
 |---------|-----------|-------|
 | TLA+ | Property-based testing | TLA+ for concurrency invariants; PBT for implementation validation |
 
-**Rationale:** Lock-free data structures require formal reasoning about linearizability, progress guarantees, and memory reclamation safety. TLA+ excels at modeling these properties. Property-based testing (Hypothesis) validates implementations against specs.
+**Rationale:** Lock-free data structures require formal reasoning about linearizability, progress guarantees, and memory reclamation safety. TLA+ excels at modeling these properties. Property-based testing (proptest/quickcheck) validates implementations against specs.
 
 ### Reference Materials
 
@@ -65,7 +67,9 @@ Legend: ✅ In scope, ⏸️ Deferred, ❌ Excluded
 | Wen et al. (2018) | IBR algorithm |
 | Brown (2015) | DEBRA+ algorithm |
 | Java ConcurrentSkipListMap | API design reference |
-| CPython 3.13 source | Free-threaded internals, mimalloc |
+| PyO3 User Guide | Rust-Python bindings |
+| crossbeam-epoch | Rust epoch-based reclamation |
+| CPython 3.13 source | Free-threaded Python internals |
 
 ### Related Documents
 
@@ -121,33 +125,33 @@ Tier 5: Extensions               ← BoundedSkipListMap, future recipes
 
 | Module | Description | Complexity |
 |--------|-------------|------------|
-| `arch_detect` | CPU architecture detection, feature flags (CMPXCHG16B, LSE) | Low |
-| `atomics` | Atomic operations abstraction, memory barriers | Medium |
-| `backoff` | Exponential backoff, pause/yield instructions | Low |
-| `config` | Runtime configuration, GIL detection, backend selection | Medium |
+| `arch_detect` | CPU architecture detection, feature flags (CMPXCHG16B, LSE, CAS2) | Low |
+| `atomics` | Atomic operations abstraction, memory orderings | Medium |
+| `backoff` | Exponential backoff, spin_loop hints | Low |
+| `config` | Runtime configuration, feature flags, allocator selection | Medium |
 
 ### Tier 1: Comparator System
 
 | Module | Description | Complexity |
 |--------|-------------|------------|
-| `comparator` | Comparison dispatch, C function registration, key extraction | Medium |
+| `comparator` | Comparison traits, custom `Ord` implementations, key extraction | Medium |
 
 ### Tier 2: Memory Management
 
 | Module | Description | Complexity |
 |--------|-------------|------------|
-| `mimalloc_glue` | mimalloc allocator integration, cross-thread free | Low |
-| `smr_ibr` | Interval-Based Reclamation implementation | High |
-| `smr_debra` | DEBRA+ implementation with signal-based neutralization | High |
+| `allocator` | Custom allocator integration (mimalloc, jemalloc via GlobalAlloc) | Low |
+| `smr_epoch` | Epoch-based reclamation (crossbeam-epoch style) | High |
+| `smr_debra` | DEBRA+ implementation with quiescent-state detection | High |
 
 ### Tier 3: Core Algorithms
 
 | Module | Description | Complexity |
 |--------|-------------|------------|
 | `skiplist_lockfree` | Fraser lock-free skip list (CAS-based) | High |
-| `skiplist_locked` | Fine-grained locked skip list (GIL backend) | Medium |
+| `skiplist_locked` | Fine-grained locked skip list (RwLock-based) | Medium |
 | `bst_lockfree` | Natarajan-Mittal external BST | High |
-| `bst_locked` | Fine-grained locked BST (GIL backend) | Medium |
+| `bst_locked` | Fine-grained locked BST (RwLock-based) | Medium |
 | `scq` | Scalable Circular Queue (portable) | High |
 | `lcrq` | Linked Concurrent Ring Queue (x86-64 only) | High |
 | `wcq` | Wait-free Circular Queue | High |
@@ -157,10 +161,10 @@ Tier 5: Extensions               ← BoundedSkipListMap, future recipes
 
 | Module | Description | Complexity |
 |--------|-------------|------------|
-| `SkipListMap` | Ordered map with dict-like API | Medium |
-| `SkipListSet` | Ordered set with set-like API | Medium |
-| `FrozenSkipListMap` | Immutable snapshot, hashable | Low |
-| `FrozenSkipListSet` | Immutable snapshot, hashable | Low |
+| `SkipListMap` | Ordered map implementing standard traits | Medium |
+| `SkipListSet` | Ordered set implementing standard traits | Medium |
+| `FrozenSkipListMap` | Immutable snapshot via `Arc<T>` | Low |
+| `FrozenSkipListSet` | Immutable snapshot via `Arc<T>` | Low |
 | `TreeMap` | BST-based ordered map | Medium |
 | `TreeSet` | BST-based ordered set | Medium |
 | `LockFreeQueue` | MPMC queue using SCQ | Low |
@@ -181,10 +185,11 @@ Tier 5: Extensions               ← BoundedSkipListMap, future recipes
 | Question | Options | Impact | Status |
 |----------|---------|--------|--------|
 | SMR thread registration | Explicit register/unregister vs automatic | API ergonomics, safety | Open |
-| Frozen snapshot allocation | Copy to new skiplist vs compact array | Memory, iteration perf | Open |
+| Frozen snapshot allocation | Copy to new structure vs compact array | Memory, iteration perf | Open |
 | Queue unbounded growth | Linked segments vs realloc | Memory patterns | Open |
 | LCRQ segment size | Fixed 1024 vs configurable | Cache behavior | Open |
 | Backoff tuning | Fixed params vs adaptive | Contention response | Open |
+| PyO3 GIL handling | Release GIL during Rust ops vs hold | Python interop, performance | Open |
 
 ---
 
@@ -192,12 +197,15 @@ Tier 5: Extensions               ← BoundedSkipListMap, future recipes
 
 | Decision | Choice | Rationale | Alternatives Considered |
 |----------|--------|-----------|------------------------|
+| Implementation language | Rust via PyO3 | Memory safety, performance, no GIL contention in Rust | C extension (manual memory), Cython (still Python-bound) |
 | Iterator semantics | Weakly consistent default, snapshot() for frozen | Matches Java, performance | Snapshot-only (memory cost) |
-| Custom comparators | Natural default + C/Python options | Performance + flexibility | Natural only (limiting) |
+| Custom comparators | Natural default + Python callable option | Flexibility for Python users | Natural only (limiting) |
 | Bounded containers | recipes module, not core | Minority use case | Core class (API bloat) |
 | GIL adaptation | Runtime detect, dual backend | Transparent to user | Single backend (suboptimal) |
 | Frozen type | FrozenSkipListMap (hashable) | Can be dict key | Return dict (loses ordering) |
-| SMR scheme | IBR primary, DEBRA+ configurable | Bounded memory, good perf | Hazard pointers (overhead) |
+| SMR scheme | Epoch-based primary (crossbeam-style), DEBRA+ configurable | Bounded memory, good perf | Hazard pointers (overhead) |
+| Error handling | Python exceptions via PyO3 | Idiomatic Python | Return codes (not Pythonic) |
+| Thread safety | All types are Send + Sync in Rust | Safe concurrent access | Single-threaded only (limiting) |
 
 ---
 
@@ -288,13 +296,13 @@ doc/design/
 
 | Concern | Affected Tiers | Notes |
 |---------|----------------|-------|
-| Error handling | All | Python exceptions, C error codes |
-| Thread safety | 2-4 | Linearizability required |
-| Memory safety | 2-3 | SMR must prevent use-after-free |
-| Platform abstraction | 0, 3 | x86-64 vs ARM64 vs portable |
-| GIL compatibility | 0, 3, 4 | Dual backend support |
-| Reference counting | 4 | Python object lifecycle |
-| GC integration | 4 | Cyclic reference handling |
+| Error handling | All | Python exceptions via PyO3, Rust `Result<T, E>` internally |
+| Thread safety | 2-4 | Linearizability required, Rust `Send + Sync` bounds |
+| Memory safety | 2-3 | Rust ownership + SMR for lock-free structures |
+| Platform abstraction | 0, 3 | x86-64 vs ARM64 via `cfg(target_arch)` |
+| GIL compatibility | 0, 3, 4 | Dual backend support, release GIL during Rust ops |
+| PyO3 integration | 4 | Python object lifecycle, reference counting |
+| Unsafe code | 2-3 | Minimized, well-documented, MIRI-tested |
 
 ---
 
@@ -316,12 +324,14 @@ The implementation must provide these guarantees:
 
 ## Performance Targets
 
-| Operation | Target (single-thread) | Target (8 threads, no GIL) |
+| Operation | Target (single-thread) | Target (8 threads, free-threaded Python) |
 |-----------|----------------------|---------------------------|
-| SkipListMap get | 800K ops/sec | 5M+ ops/sec |
-| SkipListMap put | 700K ops/sec | 4M+ ops/sec |
-| Queue enqueue/dequeue | 1M ops/sec | 6M+ ops/sec |
-| Stack push/pop | 1M ops/sec | 5M+ ops/sec |
+| SkipListMap get | 2M ops/sec | 12M+ ops/sec |
+| SkipListMap put | 1.5M ops/sec | 10M+ ops/sec |
+| Queue enqueue/dequeue | 3M ops/sec | 20M+ ops/sec |
+| Stack push/pop | 3M ops/sec | 18M+ ops/sec |
+
+*Note: Rust implementation via PyO3 provides significant speedup over pure Python while maintaining Pythonic API. GIL is released during Rust operations for maximum concurrency on free-threaded Python.*
 
 ---
 
