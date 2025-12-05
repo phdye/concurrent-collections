@@ -39,7 +39,7 @@ This documentation set enables:
 | MPMC Stack | ✅ | Treiber with elimination backoff |
 | Custom Comparators | ✅ | Natural ordering, Python callable, Rust function |
 | Dual Backend (lock-free/locked) | ✅ | Runtime GIL detection, adaptive selection |
-| SMR (memory reclamation) | ✅ | Epoch-based (crossbeam-epoch style), DEBRA+ alternative |
+| SMR (memory reclamation) | ✅ | Epoch-based (`ck::epoch`), DEBRA+ alternative |
 | Bounded Containers | ✅ | recipes.BoundedSkipListMap |
 | Distribution/RPC | ❌ | Out of scope—single process only |
 | Persistence | ❌ | Out of scope—in-memory only |
@@ -223,7 +223,7 @@ Tier 5: Extensions               ← BoundedSkipListMap, future recipes
 | Module | Description | Complexity |
 |--------|-------------|------------|
 | `allocator` | Custom allocator integration (mimalloc, jemalloc via GlobalAlloc) | Low |
-| `smr_epoch` | Epoch-based reclamation (crossbeam-epoch style) | High |
+| `smr_epoch` | Epoch-based reclamation (`ck::epoch`) | High |
 | `smr_debra` | DEBRA+ implementation with quiescent-state detection | High |
 
 ### Tier 3: Core Algorithms
@@ -297,7 +297,7 @@ Tier 5: Extensions               ← BoundedSkipListMap, future recipes
 | Bounded containers | recipes module, not core | Minority use case | Core class (API bloat) |
 | GIL adaptation | Runtime detect, dual backend | Transparent to user | Single backend (suboptimal) |
 | Frozen type | FrozenSkipListMap (hashable) | Can be dict key | Return dict (loses ordering) |
-| SMR scheme | Epoch-based primary (crossbeam-style), DEBRA+ configurable | Bounded memory, good perf | Hazard pointers (overhead) |
+| SMR scheme | Epoch-based primary (`ck::epoch`), DEBRA+ configurable | Bounded memory, good perf | Hazard pointers (overhead) |
 | Error handling | Python exceptions via PyO3 | Idiomatic Python | Return codes (not Pythonic) |
 | Thread safety | All types are Send + Sync in Rust | Safe concurrent access | Single-threaded only (limiting) |
 
