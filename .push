@@ -1,0 +1,12 @@
+#!/bin/bash
+
+if [ -z "$1" ] ; then
+    branch=$(cat .branch)
+else
+    branch="$1"
+    if [ -f "${branch}" ] ; then
+        branch=$(cat ${branch})
+    fi
+fi
+
+git push origin "${branch}"

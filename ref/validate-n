@@ -2,8 +2,8 @@
 
 2. Implement all missing/incomplete/inaccurate functionality -- including, but not limited to:
    - primary functionality
-   - tests per the design documentation (doc/design/tier-<N>/<module>/tests.md)
-   - benchmarks per perf.md (for Tier 2-4 modules)
+   - tests per the ref/comprehensive-testing.md
+   - benchmarks
    - regressions
 
 3. Resolve all discrepancies -- retain reasonable additional functionality

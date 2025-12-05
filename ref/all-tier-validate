@@ -1,0 +1,12 @@
+nFor N in ( 0, 1, 2, 3, 4 ) : {
+
+  1. Execute instructions in `ref/validate-tier`
+
+  2. Implement all missing/incomplete/inaccurate functionality -- including, but not limited to :
+     - primary functionality
+     - tests per the ref/comprehensive-testing.md   
+     - benchmarks
+     - regressions
+
+  3. Resolve all discrepancies -- retain reasonable additional functionality
+}
