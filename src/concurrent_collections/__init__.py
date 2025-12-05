@@ -46,6 +46,40 @@ from concurrent_collections._profiler import (
     OptimizationLevel,
 )
 
+# Tier 2: Memory Management
+from concurrent_collections._mimalloc_glue import (
+    Allocator,
+    AllocatorStats,
+    AllocationSnapshot,
+    alloc_stats_enable,
+    alloc_stats_disable,
+    alloc_stats_reset,
+    alloc_stats_snapshot,
+    cc_alloc,
+    cc_free,
+)
+
+from concurrent_collections._smr_ibr import (
+    IBRDomain,
+    IBRGuard,
+    SMRProfiler,
+    SMRProfilerReport,
+    get_default_ibr,
+    # Aliases for backward compatibility
+    SMRDomain,
+    SMRGuard,
+    get_default_smr,
+)
+
+from concurrent_collections._smr_debra import (
+    DEBRADomain,
+    DEBRAGuard,
+    DEBRAProfiler,
+    DEBRAProfilerReport,
+    get_default_debra,
+    NEUTRALIZATION_SUPPORTED,
+)
+
 __all__ = [
     # Version
     "__version__",
@@ -76,4 +110,30 @@ __all__ = [
     "ComparatorProfiler",
     "ProfilerReport",
     "OptimizationLevel",
+    # Tier 2: mimalloc_glue
+    "Allocator",
+    "AllocatorStats",
+    "AllocationSnapshot",
+    "alloc_stats_enable",
+    "alloc_stats_disable",
+    "alloc_stats_reset",
+    "alloc_stats_snapshot",
+    "cc_alloc",
+    "cc_free",
+    # Tier 2: smr_ibr
+    "IBRDomain",
+    "IBRGuard",
+    "SMRProfiler",
+    "SMRProfilerReport",
+    "get_default_ibr",
+    "SMRDomain",
+    "SMRGuard",
+    "get_default_smr",
+    # Tier 2: smr_debra
+    "DEBRADomain",
+    "DEBRAGuard",
+    "DEBRAProfiler",
+    "DEBRAProfilerReport",
+    "get_default_debra",
+    "NEUTRALIZATION_SUPPORTED",
 ]
