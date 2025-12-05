@@ -2,12 +2,12 @@ N = <tier-number>
 
 ## Validation Scope
 
-Validate that ck-zig **fully and faithfully** implements Tier <N> functionality as specified in the authoritative design capture documents.
+Validate that `concurrent_collections` **fully and faithfully** implements Tier <N> functionality as specified in the authoritative design capture documents.
 
 ### Reference Documents (Read First)
-1. **Tier Definition**: `phdye/doc/ck-porting-order.md` → Tier <N> module list
-2. **Completion Requirements**: `phdye/design/README.md` → Four-document mandate
-3. **Design Specifications**: `phdye/design/tier-<N>/` → Per-module specifications
+1. **Tier Definition**: `doc/design/porting-order.md` → Tier <N> module list
+2. **Completion Requirements**: `doc/design/design-capture.md` → Module completion requirements
+3. **Design Specifications**: `doc/design/tier-<N>/` → Per-module specifications
 
 ---
 
@@ -19,7 +19,7 @@ Validate that ck-zig **fully and faithfully** implements Tier <N> functionality 
 - **EVERY** module listed for Tier <N> must be implemented
 - **EVERY** sub-module/variant documented in design.md must be implemented
 - **EVERY** public API function specified in spec.md must exist with correct signature
-- **EVERY** operation defined in spec.tla+ must have a corresponding implementation
+- **EVERY** operation defined in spec.tla must have a corresponding implementation
 - **EVERY** behavioral property must be preserved
 
 ### Explicit Prohibitions:
@@ -33,21 +33,21 @@ Validate that ck-zig **fully and faithfully** implements Tier <N> functionality 
 If ANY of the following are missing, the module validation verdict is **FAIL**:
 - Any variant listed in design.md (e.g., all 5 stack variants, all 8 spinlock variants)
 - Any public function in spec.md
-- Any operation in spec.tla+
+- Any operation in spec.tla
 - Any regression test mapping in tests.md
 
 ---
 
 ## Mandatory Validation (Per Module/Sub-Module)
 
-For **EACH** module and sub-module listed in Tier <N>, validate ck-zig against ALL FOUR required documents:
+For **EACH** module and sub-module listed in Tier <N>, validate `concurrent_collections` against the required documents:
 
 | Document | Validation Criteria |
 |----------|---------------------|
 | `design.md` | Architecture matches, algorithms implemented correctly, data structures faithfully ported, **ALL variants/sub-types implemented**, all dependencies satisfied, platform considerations addressed |
 | `spec.md` | **ALL** pre/postconditions enforced, **ALL** invariants maintained, **ALL** safety properties guaranteed, **ALL** error conditions handled as specified |
-| `spec.tla+` | Implementation semantics match formal TLA+ specification, **ALL** state transitions correct, **ALL** safety/liveness properties preserved |
-| `tests.md` | **ALL** mapped regression tests have corresponding Zig tests, **COMPLETE** test matrix coverage achieved, identified gaps addressed or documented as FAIL |
+| `spec.tla` | Implementation semantics match formal TLA+ specification (Tier 2-3 modules), **ALL** state transitions correct, **ALL** safety/liveness properties preserved |
+| `tests.md` | **ALL** mapped regression tests have corresponding tests, **COMPLETE** test matrix coverage achieved, identified gaps addressed or documented as FAIL |
 
 ---
 
@@ -55,27 +55,27 @@ For **EACH** module and sub-module listed in Tier <N>, validate ck-zig against A
 
 For each module in Tier <N>:
 1. **Enumerate Expected**: List ALL variants/sub-modules/APIs from design.md and spec.md
-2. **Enumerate Implemented**: List what actually exists in ck-zig
+2. **Enumerate Implemented**: List what actually exists in `concurrent_collections`
 3. **Compute Delta**: Identify EVERY missing item (not just "key" items)
-4. **Validate Present**: For items that exist, verify correctness against all four documents
+4. **Validate Present**: For items that exist, verify correctness against all required documents
 5. **Verdict**: PASS only if delta is empty AND all present items are correct
 
 ---
 
 ## Output
 
-Write comprehensive validation results to `phdye/report/tier-<N>.md` including:
+Write comprehensive validation results to `doc/report/tier-<N>.md` including:
 
 ### Required Sections:
 1. **Module Inventory**
    - Expected (from design docs): [complete list]
-   - Implemented (in ck-zig): [complete list]
+   - Implemented (in concurrent_collections): [complete list]
    - **Missing**: [explicit list — empty if complete]
 
-2. **Per-Module Compliance** (all four document types)
+2. **Per-Module Compliance** (required document types)
    - design.md compliance: PASS/FAIL + details
    - spec.md compliance: PASS/FAIL + details
-   - spec.tla+ compliance: PASS/FAIL + details
+   - spec.tla compliance: PASS/FAIL + details (Tier 2-3 only)
    - tests.md compliance: PASS/FAIL + details
 
 3. **Deviations & Gaps**
@@ -103,7 +103,7 @@ If `design.md` specifies these stack variants:
 - SPNC (Single Producer, No Concurrent consumers)
 - NPSC (No concurrent Producers, Single Consumer)
 
-And ck-zig only implements UPMC and MPMC:
+And `concurrent_collections` only implements UPMC and MPMC:
 
 **Verdict: FAIL**
 
