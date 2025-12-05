@@ -5,9 +5,9 @@ N = <tier-number>
 Validate that ck-zig **fully and faithfully** implements Tier <N> functionality as specified in the authoritative design capture documents.
 
 ### Reference Documents (Read First)
-1. **Tier Definition**: `phdye/doc/ck-porting-order.md` → Tier <N> module list
-2. **Completion Requirements**: `phdye/design/README.md` → Four-document mandate
-3. **Design Specifications**: `phdye/design/tier-<N>/` → Per-module specifications
+1. **Tier Definition**: `ref/doc/ck-porting-order.md` → Tier <N> module list
+2. **Completion Requirements**: `ref/design/README.md` → Four-document mandate
+3. **Design Specifications**: `ref/design/tier-<N>/` → Per-module specifications
 
 ---
 
@@ -64,7 +64,7 @@ For each module in Tier <N>:
 
 ## Output
 
-Write comprehensive validation results to `phdye/report/tier-<N>.md` including:
+Write comprehensive validation results to `ref/report/tier-<N>.md` including:
 
 ### Required Sections:
 1. **Module Inventory**

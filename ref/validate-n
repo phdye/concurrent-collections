@@ -2,7 +2,7 @@
 
 2. Implement all missing/incomplete/inaccurate functionality -- including, but not limited to :
    - primary functionality
-   - tests per the phdye/comprehensive-testing.md   
+   - tests per the ref/comprehensive-testing.md   
    - benchmarks
    - regressions
 
