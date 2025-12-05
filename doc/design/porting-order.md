@@ -4,6 +4,10 @@
 
 This document defines the authoritative module list and implementation order for `concurrent_collections`. Modules are organized into dependency tiers — lower tiers must be complete before higher tiers can begin.
 
+**Target Runtime:** Python 3.13+ (free-threaded and GIL-enabled)
+**Implementation Language:** Rust (stable, MSRV 1.75.0) via PyO3
+**Build System:** maturin
+
 ---
 
 ## Tier Summary
@@ -11,10 +15,10 @@ This document defines the authoritative module list and implementation order for
 | Tier | Category | Modules | Description |
 |------|----------|---------|-------------|
 | 0 | Platform & Utilities | 4 | Architecture detection, atomics, backoff, config |
-| 1 | Comparator System | 1 | Key comparison dispatch |
+| 1 | Comparator System | 1 | Key comparison traits and dispatch |
 | 2 | Memory Management | 3 | Allocator integration, SMR schemes |
 | 3 | Core Algorithms | 8 | Lock-free and locked data structure implementations |
-| 4 | Public API | 10 | User-facing container classes |
+| 4 | Public API | 10 | User-facing container types |
 | 5 | Extensions | 1 | Additional utilities |
 
 **Total:** 27 modules
@@ -27,24 +31,25 @@ This document defines the authoritative module list and implementation order for
 
 | Module | Description | Complexity | Status |
 |--------|-------------|------------|--------|
-| `arch_detect` | CPU detection (x86-64, ARM64), feature flags (CMPXCHG16B, LSE) | Low | ⬜ |
-| `atomics` | Atomic ops abstraction, memory barriers, CAS variants | Medium | ⬜ |
-| `backoff` | Exponential backoff, pause/yield, spin limits | Low | ⬜ |
-| `config` | Runtime config, GIL detection, backend selection, env vars | Medium | ⬜ |
+| `arch_detect` | CPU detection via `cfg(target_arch)`, runtime feature detection | Low | ⬜ |
+| `atomics` | Atomic ops via `std::sync::atomic`, memory orderings | Medium | ⬜ |
+| `backoff` | Exponential backoff, `std::hint::spin_loop`, yield | Low | ⬜ |
+| `config` | Compile-time features, runtime config, allocator selection | Medium | ⬜ |
 
 Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 
 ### Tier 0 Completion Criteria
 
-- [ ] `arch_detect` correctly identifies x86-64 vs ARM64 vs other
-- [ ] `arch_detect` detects CMPXCHG16B on x86-64, LSE on ARM64
-- [ ] `atomics` provides load/store/CAS/FAA with configurable memory order
+- [ ] `arch_detect` correctly identifies x86-64 vs aarch64 via `cfg(target_arch)`
+- [ ] `arch_detect` runtime detection for CMPXCHG16B (x86-64), LSE (aarch64) via `std::arch::is_x86_feature_detected!`
+- [ ] `atomics` provides `AtomicPtr`, `AtomicUsize` wrappers with ergonomic API
 - [ ] `atomics` compiles on all target platforms (Linux, macOS, Windows)
-- [ ] `backoff` provides tunable exponential backoff with platform-optimal pause
-- [ ] `config` detects GIL state via `sys._is_gil_enabled()` or fallback
-- [ ] `config` reads environment variables for overrides
+- [ ] `backoff` provides tunable exponential backoff with `spin_loop` hint
+- [ ] `config` provides `Config` struct with builder pattern
+- [ ] `config` reads environment variables via `std::env`
 - [ ] All modules have design.md, spec.md, tests.md
-- [ ] Unit tests pass on all platforms
+- [ ] `cargo test` passes on all platforms
+- [ ] `cargo clippy` clean, `cargo fmt` applied
 
 ---
 
@@ -54,18 +59,17 @@ Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 
 | Module | Description | Complexity | Status |
 |--------|-------------|------------|--------|
-| `comparator` | Comparison dispatch, C function pointers, key extraction | Medium | ⬜ |
+| `comparator` | Comparison dispatch, Rust `Ord` trait, Python callable support | Medium | ⬜ |
 
 ### Tier 1 Completion Criteria
 
-- [ ] Natural ordering works via `PyObject_RichCompare`
-- [ ] C function comparators callable without Python overhead
-- [ ] Python callable comparators work (with documented overhead)
+- [ ] Natural ordering works via Rust `Ord` trait for primitive types
+- [ ] Python callable comparators work via PyO3 (with documented overhead)
 - [ ] Key functions (like `sorted(key=...)`) extract key once at insertion
 - [ ] Built-in comparators: `reverse()`, `numeric()`, `string()`
-- [ ] Cython integration documented with examples
 - [ ] `comparator_type` attribute reports active type
 - [ ] design.md, spec.md, tests.md complete
+- [ ] `cargo test` and `pytest` pass
 
 ---
 
@@ -75,25 +79,24 @@ Legend: ⬜ Not started, 🔶 In progress, ✅ Complete
 
 | Module | Description | Complexity | Status |
 |--------|-------------|------------|--------|
-| `mimalloc_glue` | mimalloc integration, allocation/free wrappers | Low | ⬜ |
-| `smr_ibr` | Interval-Based Reclamation, epoch tracking, retire lists | High | ⬜ |
-| `smr_debra` | DEBRA+ with signal-based neutralization | High | ⬜ |
+| `allocator` | Custom allocator integration (mimalloc, jemalloc via GlobalAlloc) | Low | ⬜ |
+| `smr_epoch` | Epoch-based reclamation (crossbeam-epoch style) | High | ⬜ |
+| `smr_debra` | DEBRA+ with quiescent-state detection | High | ⬜ |
 
 ### Tier 2 Completion Criteria
 
-- [ ] `mimalloc_glue` allocates/frees through mimalloc
+- [ ] `allocator` integrates mimalloc via Rust's GlobalAlloc trait
 - [ ] Cross-thread frees work correctly
-- [ ] `smr_ibr` tracks epochs per thread
-- [ ] `smr_ibr` retires nodes to deferred list
-- [ ] `smr_ibr` reclaims when safe (no thread in old epoch)
-- [ ] `smr_ibr` handles stalled threads
+- [ ] `smr_epoch` tracks epochs per thread (crossbeam-epoch style)
+- [ ] `smr_epoch` retires nodes to deferred list
+- [ ] `smr_epoch` reclaims when safe (no thread in old epoch)
+- [ ] `smr_epoch` handles stalled threads
 - [ ] `smr_debra` implements quiescent state detection
-- [ ] `smr_debra` uses signals for neutralization
 - [ ] Memory bounded under sustained load (no unbounded growth)
-- [ ] TSAN clean under stress test
-- [ ] ASAN clean (no use-after-free, no leaks)
-- [ ] TLA+ spec for IBR safety properties
+- [ ] MIRI clean under stress test
+- [ ] TLA+ spec for epoch-based safety properties
 - [ ] design.md, spec.md, tests.md, spec.tla, perf.md complete
+- [ ] `cargo test` passes
 
 ### Key Invariants (TLA+)
 
@@ -121,9 +124,9 @@ BoundedMemory ==
 | Module | Description | Complexity | Status |
 |--------|-------------|------------|--------|
 | `skiplist_lockfree` | Fraser lock-free skip list, CAS-based insert/delete | High | ⬜ |
-| `skiplist_locked` | Fine-grained locked skip list for GIL backend | Medium | ⬜ |
+| `skiplist_locked` | Fine-grained locked skip list (RwLock-based) | Medium | ⬜ |
 | `bst_lockfree` | Natarajan-Mittal external BST | High | ⬜ |
-| `bst_locked` | Fine-grained locked BST for GIL backend | Medium | ⬜ |
+| `bst_locked` | Fine-grained locked BST (RwLock-based) | Medium | ⬜ |
 | `scq` | Scalable Circular Queue (portable, single-width CAS) | High | ⬜ |
 | `lcrq` | Linked Concurrent Ring Queue (x86-64, double-width CAS) | High | ⬜ |
 | `wcq` | Wait-free Circular Queue | High | ⬜ |
@@ -132,42 +135,43 @@ BoundedMemory ==
 ### Tier 3 Completion Criteria
 
 #### Skip List
-- [ ] `skiplist_lockfree` implements Fraser's algorithm
-- [ ] Insert, delete, find all lock-free
+- [ ] `skiplist_lockfree` implements Fraser's algorithm in Rust
+- [ ] Insert, delete, find all lock-free using `std::sync::atomic`
 - [ ] Probabilistic level selection (geometric distribution)
 - [ ] Supports range iteration (weakly consistent)
-- [ ] `skiplist_locked` uses per-level locks
+- [ ] `skiplist_locked` uses `RwLock` for per-level locking
 - [ ] Both variants share node structure definition
 - [ ] TLA+ spec proves linearizability
 
 #### BST
-- [ ] `bst_lockfree` implements Natarajan-Mittal
+- [ ] `bst_lockfree` implements Natarajan-Mittal in Rust
 - [ ] External tree structure (keys in leaves)
-- [ ] CAS-based edge modification
-- [ ] `bst_locked` uses hand-over-hand locking
+- [ ] CAS-based edge modification using `AtomicPtr`
+- [ ] `bst_locked` uses `RwLock` for hand-over-hand locking
 - [ ] TLA+ spec proves linearizability
 
 #### Queues
-- [ ] `scq` implements Nikolaev-Ravindran algorithm
+- [ ] `scq` implements Nikolaev-Ravindran algorithm in Rust
 - [ ] Works with single-width CAS (portable)
 - [ ] `lcrq` implements Morrison-Afek algorithm
-- [ ] Uses CMPXCHG16B (x86-64 only)
+- [ ] Uses `AtomicU128` / CMPXCHG16B (x86-64 only, via `cfg(target_arch)`)
 - [ ] `wcq` provides wait-free guarantee
 - [ ] All queues maintain FIFO order
 - [ ] Bounded and unbounded modes supported
 - [ ] TLA+ specs prove FIFO and progress
 
 #### Stack
-- [ ] `treiber` implements classic Treiber stack
+- [ ] `treiber` implements classic Treiber stack in Rust
 - [ ] Elimination backoff for high contention
 - [ ] Elimination array with timeout
 - [ ] TLA+ spec proves LIFO and lock-freedom
 
 #### General
-- [ ] All lock-free modules integrate with SMR
+- [ ] All lock-free modules integrate with SMR (epoch-based)
 - [ ] All modules have design.md, spec.md, tests.md, spec.tla, perf.md
-- [ ] TSAN clean under stress test
+- [ ] MIRI clean under stress test
 - [ ] Linearizability tests pass (history verification)
+- [ ] `cargo test` passes
 
 ### Key Invariants (TLA+)
 
@@ -200,8 +204,8 @@ Linearizable ==
 
 | Module | Description | Complexity | Status |
 |--------|-------------|------------|--------|
-| `SkipListMap` | Ordered map, dict-like API, range queries | Medium | ⬜ |
-| `SkipListSet` | Ordered set, set-like API, range iteration | Medium | ⬜ |
+| `SkipListMap` | Ordered map, dict-like Python API, range queries | Medium | ⬜ |
+| `SkipListSet` | Ordered set, set-like Python API, range iteration | Medium | ⬜ |
 | `FrozenSkipListMap` | Immutable snapshot, hashable | Low | ⬜ |
 | `FrozenSkipListSet` | Immutable snapshot, hashable | Low | ⬜ |
 | `TreeMap` | BST-based ordered map | Medium | ⬜ |
@@ -248,14 +252,16 @@ Linearizable ==
 - [ ] `push`, `pop`, `try_pop`, `peek`
 - [ ] `Empty` exception on pop from empty stack
 
-#### General
-- [ ] All classes integrate with Python GC (`tp_traverse`, `tp_clear`)
-- [ ] Reference counting correct for stored objects
-- [ ] Backend selection transparent (lock-free vs locked)
+#### General (PyO3 Integration)
+- [ ] All classes exposed via `#[pyclass]` with `#[pymethods]`
+- [ ] GIL released during Rust operations via `py.allow_threads()`
+- [ ] Python object reference counting handled via PyO3
+- [ ] Backend selection transparent (lock-free vs locked based on GIL detection)
 - [ ] `comparator_type` attribute available
 - [ ] design.md, spec.md, tests.md, perf.md complete
-- [ ] Docstrings complete
+- [ ] Docstrings complete (via `#[pyo3(text_signature)]`)
 - [ ] Type stubs (`.pyi`) complete
+- [ ] `pytest` tests pass
 
 ---
 
@@ -276,6 +282,7 @@ Linearizable ==
 - [ ] Inherits all `SkipListMap` functionality
 - [ ] Documented race conditions under concurrency
 - [ ] design.md, spec.md, tests.md complete
+- [ ] `pytest` tests pass
 
 ---
 
@@ -283,13 +290,14 @@ Linearizable ==
 
 | Concern | Affected Tiers | Approach |
 |---------|----------------|----------|
-| Error handling | All | Python exceptions from C; error codes internally |
-| Logging | 2-4 | Debug logging via Python `logging` module |
-| Thread safety | 2-4 | Lock-free algorithms; linearizability verified |
-| Memory safety | 2-3 | SMR prevents use-after-free; ASAN in CI |
-| Platform support | 0, 3 | Portable C11 with platform-specific optimizations |
-| GIL compatibility | 0, 3, 4 | Runtime detection, dual backend |
-| Performance testing | 2-4 | Benchmarks in CI, regression detection |
+| Error handling | All | Python exceptions via PyO3; Rust `Result<T, E>` internally |
+| Logging | 2-4 | Debug logging via `tracing` crate + Python `logging` bridge |
+| Thread safety | 2-4 | Lock-free algorithms; linearizability verified; Rust `Send + Sync` |
+| Memory safety | 2-3 | Rust ownership + SMR for lock-free; MIRI in CI |
+| Platform support | 0, 3 | Rust `cfg(target_arch)` with platform-specific optimizations |
+| GIL compatibility | 0, 3, 4 | Runtime detection, dual backend, `py.allow_threads()` |
+| Performance testing | 2-4 | Criterion.rs benchmarks + pytest-benchmark in CI |
+| Build system | All | maturin for Python wheel building |
 
 ---
 
@@ -322,13 +330,13 @@ Each module directory must contain:
 
 ## Platform Test Matrix
 
-| Platform | Python Versions | Backends | Queue Backends |
-|----------|-----------------|----------|----------------|
-| Linux x86-64 | 3.13, 3.13t | locked, lock_free | SCQ, LCRQ |
-| Linux ARM64 | 3.13, 3.13t | locked, lock_free | SCQ |
-| macOS x86-64 | 3.13, 3.13t | locked, lock_free | SCQ, LCRQ |
-| macOS ARM64 | 3.13, 3.13t | locked, lock_free | SCQ |
-| Windows x86-64 | 3.13, 3.13t | locked, lock_free | SCQ, LCRQ |
+| Platform | Python Versions | Rust Target | Backends | Queue Backends |
+|----------|-----------------|-------------|----------|----------------|
+| Linux x86-64 | 3.13, 3.13t | x86_64-unknown-linux-gnu | locked, lock_free | SCQ, LCRQ |
+| Linux ARM64 | 3.13, 3.13t | aarch64-unknown-linux-gnu | locked, lock_free | SCQ |
+| macOS x86-64 | 3.13, 3.13t | x86_64-apple-darwin | locked, lock_free | SCQ, LCRQ |
+| macOS ARM64 | 3.13, 3.13t | aarch64-apple-darwin | locked, lock_free | SCQ |
+| Windows x86-64 | 3.13, 3.13t | x86_64-pc-windows-msvc | locked, lock_free | SCQ, LCRQ |
 
 ---
 
@@ -337,3 +345,4 @@ Each module directory must contain:
 | Date | Author | Changes |
 |------|--------|---------|
 | 2024-12-04 | Initial | Initial module order based on Design.v3.md |
+| 2025-12-05 | Update | Updated for Rust implementation via PyO3 |

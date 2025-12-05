@@ -2,9 +2,11 @@
 
 ## Overview
 
-`SkipListMap` is the primary ordered map container, providing a dict-like API with concurrent access safety. It wraps `skiplist_lockfree` or `skiplist_locked` depending on GIL state.
+`SkipListMap` is the primary ordered map container, providing a dict-like Python API with concurrent access safety. It wraps `skiplist_lockfree` or `skiplist_locked` depending on GIL state.
 
-## Public API
+**Implementation:** Rust (via PyO3)
+
+## Public API (Python)
 
 ```python
 class SkipListMap(MutableMapping[K, V]):
@@ -59,6 +61,86 @@ class SkipListMap(MutableMapping[K, V]):
 
     @property
     def backend_type(self) -> str: ...
+```
+
+## Rust Implementation
+
+```rust
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyTuple};
+use std::sync::Arc;
+
+/// Internal skip list storage (generic over backend)
+enum SkipListBackend<K, V> {
+    LockFree(Arc<LockFreeSkipList<K, V>>),
+    Locked(Arc<LockedSkipList<K, V>>),
+}
+
+#[pyclass(name = "SkipListMap")]
+pub struct PySkipListMap {
+    inner: SkipListBackend<PyObject, PyObject>,
+    comparator: Option<PyObject>,
+}
+
+#[pymethods]
+impl PySkipListMap {
+    #[new]
+    #[pyo3(signature = (items=None, *, cmp=None, key=None, backend="auto"))]
+    fn new(
+        py: Python<'_>,
+        items: Option<&PyAny>,
+        cmp: Option<PyObject>,
+        key: Option<PyObject>,
+        backend: &str,
+    ) -> PyResult<Self> {
+        let backend = match backend {
+            "lockfree" => Self::create_lockfree(cmp.clone()),
+            "locked" => Self::create_locked(cmp.clone()),
+            "auto" | _ => {
+                if Self::is_gil_disabled(py)? {
+                    Self::create_lockfree(cmp.clone())
+                } else {
+                    Self::create_locked(cmp.clone())
+                }
+            }
+        };
+
+        let mut map = Self { inner: backend, comparator: cmp };
+
+        if let Some(items) = items {
+            map.update(py, items)?;
+        }
+
+        Ok(map)
+    }
+
+    fn __getitem__(&self, py: Python<'_>, key: PyObject) -> PyResult<PyObject> {
+        // Release GIL during Rust operation
+        py.allow_threads(|| {
+            self.inner.get(&key)
+        }).ok_or_else(|| PyKeyError::new_err(key))
+    }
+
+    fn __setitem__(&self, py: Python<'_>, key: PyObject, value: PyObject) -> PyResult<()> {
+        py.allow_threads(|| {
+            self.inner.insert(key, value);
+        });
+        Ok(())
+    }
+
+    fn put_if_absent(
+        &self,
+        py: Python<'_>,
+        key: PyObject,
+        value: PyObject,
+    ) -> PyResult<Option<PyObject>> {
+        py.allow_threads(|| {
+            self.inner.put_if_absent(key, value)
+        })
+    }
+
+    // ... additional methods
+}
 ```
 
 ## Usage Examples
@@ -146,17 +228,29 @@ class SkipListMapProfiler:
 | Write operations | Lock-free/Blocking | Depends on backend |
 | Iteration | Weakly consistent | May see concurrent changes |
 
+## PyO3 Integration Details
+
+| Aspect | Implementation |
+|--------|----------------|
+| GIL handling | `py.allow_threads()` for Rust operations |
+| Object storage | `PyObject` with proper reference counting |
+| Error handling | `PyResult<T>` maps to Python exceptions |
+| Type stubs | Generated `.pyi` files for IDE support |
+
 ## Memory Management
 
-- Python object references properly managed
-- SMR ensures safe memory reclamation (lock-free backend)
-- Immediate deallocation (locked backend)
+- Python object references managed via PyO3's `PyObject`
+- Rust's ownership system prevents use-after-free
+- Epoch-based SMR ensures safe memory reclamation (lock-free backend)
+- `RwLock` with immediate deallocation (locked backend)
 
 ## Performance Targets
 
-| Operation | P99 Latency | Throughput (8 threads) |
+| Operation | P99 Latency | Throughput (8 threads, free-threaded) |
 |-----------|-------------|------------------------|
-| get | <5 μs | >2M ops/s |
-| put | <10 μs | >500K ops/s |
-| delete | <10 μs | >500K ops/s |
-| range(100) | <50 μs | >100K ops/s |
+| get | <2 μs | >5M ops/s |
+| put | <5 μs | >2M ops/s |
+| delete | <5 μs | >2M ops/s |
+| range(100) | <20 μs | >500K ops/s |
+
+*Note: Rust implementation provides significantly better performance than pure Python or C extension approaches.*
